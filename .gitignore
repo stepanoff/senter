@@ -1,0 +1,6 @@
+/composer.lock
+/.idea
+/data
+/vendor
+/www/localConfig/params.php
+/www/assets
