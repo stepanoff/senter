@@ -9,22 +9,16 @@ class SiteController extends VController
 	public function actionIndex()
 	{
         $senter = Yii::app()->senter;
-//        $senter->test(); // закрываем тикеты, выкаченные на живой сайт
+        //$senter->test(); // закрываем тикеты, выкаченные на живой сайт
+        //die();
         //$this->render('main', array());
-        /*
-        $senter = Yii::app()->senter;
-        $senter->test(); // закрываем тикеты, выкаченные на живой сайт
-        $this->render('main', array());
-        return;
-        */
 
-        $senter = Yii::app()->senter;
         //$senter->createIssues(); // выгружаем все тикеты из сервисов техподдержек
 
-        //$senter->markClosedIssues(); // закрываем тикеты, выкаченные на живой сайт
-        //$senter->markSolvedIssues();// комментируем тикеты, влитые в основную ветку
-        //$senter->markReviewIssues(); // комментируем тикеты, отданные на проверку
-        //$senter->markProcessIssues(); // комментируем тикеты, взятые в разработку
+        $senter->markClosedIssues(); // закрываем тикеты, выкаченные на живой сайт
+        $senter->markSolvedIssues();// комментируем тикеты, влитые в основную ветку
+        $senter->markReviewIssues(); // комментируем тикеты, отданные на проверку
+        $senter->markProcessIssues(); // комментируем тикеты, взятые в разработку
         $senter->createNewIssues(); // выгружаем новые тикеты из сервисов техподдержек
         $senter->uploadOpenIssuesToDev (); // отправляем новые тикеты в систему тикетов разработки
         die();

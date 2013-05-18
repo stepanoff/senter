@@ -21,4 +21,16 @@ return array(
 	'phpPath' => '', // Path to php
 
 	'filePath' => '', // Путь до файлов с фидами
+
+    'zendesk' => array(
+        'apiUrl' => '',
+        'apiKey' => '',
+        'user' => '',
+    ),
+
+    'github' => array(
+        'githubUser' => '',
+        'login' => '',
+        'password' => '',
+    ),
 );

@@ -12,7 +12,7 @@ class SenterGithubDriver extends CComponent {
 
     protected $login;
     protected $password;
-    protected $gitHubUser = 'mediasite'; // todo: добавить поддержку работы с репозиториями нескольких пользователей
+    protected $githubUser; // todo: добавить поддержку работы с репозиториями нескольких пользователей
     protected $repos = array('gpor', 'old');
 
     private $_client = null;
@@ -82,10 +82,8 @@ class SenterGithubDriver extends CComponent {
     }
 
     public function test () {
-        //$unassignedTask = $this->_client->api('issue')->show($this->gitHubUser, 'gpor', 1930);
-
-        $unassignedTask = $this->_client->getHttpClient()->get('repos/mediasite/gpor/issues/1930/events');
-        print_r($unassignedTask);
+        //$this->_client->api('issue')->labels()->replace($this->githubUser, 'gpor', 1980, array('bug') );
+        $repo   = $this->_client->getHttpClient()->put('repos/mediasite/gpor/issues/1980/labels', array(1=>'bug'));
         die();
     }
 
@@ -94,7 +92,7 @@ class SenterGithubDriver extends CComponent {
         $res = array();
         $reviewTasks = GitHubIssue::model()->onReview()->findAll();
         foreach ($reviewTasks as $reviewTask) {
-            $pullRequest = $this->_client->api('pull_request')->show($this->gitHubUser, $reviewTask->rep, $reviewTask->pullRequestNum);
+            $pullRequest = $this->_client->api('pull_request')->show($this->githubUser, $reviewTask->rep, $reviewTask->pullRequestNum);
             if ($pullRequest) {
                 if ($pullRequest['state'] == 'closed' && $pullRequest['merged']) {
                     $reviewTask->addPullRequest($pullRequest);
@@ -111,7 +109,7 @@ class SenterGithubDriver extends CComponent {
 
         $allOpenPullRequests = array();
         foreach ($this->repos as $repo) {
-            $allOpenPullRequests[$repo] = $this->_client->api('pull_request')->all($this->gitHubUser, $repo, 'open');
+            $allOpenPullRequests[$repo] = $this->_client->api('pull_request')->all($this->githubUser, $repo, 'open');
         }
         foreach ($allOpenPullRequests as $repo => $openPullRequests)
         {
@@ -139,12 +137,11 @@ class SenterGithubDriver extends CComponent {
         }
         foreach ($allIssues as $repo => $issues) {
             foreach ($issues as $issue) {
-                $unassignedTask = $this->_client->api('issue')->show($this->gitHubUser, $repo, $issue->repNum);
+                $unassignedTask = $this->_client->api('issue')->show($this->githubUser, $repo, $issue->repNum);
                 if ($unassignedTask) {
                     if ($unassignedTask['assignee'] && $unassignedTask['assignee']['id']) {
                         if ($issue->isOpen()) {
                             $issue->assigneeId = $unassignedTask['assignee']['id'];
-                            $issue->save();
                             $res[] = $issue;
                         }
 
@@ -200,14 +197,14 @@ class SenterGithubDriver extends CComponent {
 
     public function addDevIssue ($attrs)
     {
-        $res = $this->_client->api('issue')->create($this->gitHubUser, $attrs['rep'], array(
+        $res = $this->_client->api('issue')->create($this->githubUser, $attrs['rep'], array(
             'title' => $attrs['title'],
             'body' => $attrs['body'],
         ));
         if ($res && is_array($res) && $res['id']) {
 
             if ($attrs['labels']) {
-                $this->_client->api('issue')->labels()->replace($this->gitHubUser, $attrs['rep'], $res['id'], $attrs['labels']);
+                $this->_client->api('issue')->labels()->replace($this->githubUser, $attrs['rep'], $res['number'], $attrs['labels']);
             }
 
             $task = new GitHubIssue();

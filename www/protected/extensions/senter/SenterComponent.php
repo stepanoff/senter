@@ -178,6 +178,7 @@ class SenterComponent extends CApplicationComponent {
                     if ($driver->markIssue($sourceIssue, Issue::ACTION_PROCESS)) {
                         $devDriver->markIssue($issue, Issue::ACTION_PROCESS);
 
+                        // todo: плохо, надо хотя бы bySource добавить
                         $developer = Developer::model()->byExternalId($issue->assigneeId)->find();
                         if ($developer) {
                             $sourceIssue->assigneeId = $developer->id;
@@ -289,6 +290,7 @@ class SenterComponent extends CApplicationComponent {
 
     public function addDevIssue ($attrs)
     {
+        $devDriver = $this->getDevDriver();
         $issue = Issue::model()->byClientSource($attrs['clientSource'])->byClientId($attrs['clientSourceId'])->find();
         if (!$issue) {
             $issue = new Issue();
@@ -304,8 +306,8 @@ class SenterComponent extends CApplicationComponent {
                 $type = IssueType::model()->findByPk($issue->typeId);
                 if ($type) {
                     $labels = $type->getDevLabels();
-                    if (isset($labels[$issue->clientSource]) && $labels[$issue->clientSource]) {
-                        $devLabels[] = $labels[$issue->clientSource];
+                    if (isset($labels[$attrs['rep']]) && $labels[$attrs['rep']]) {
+                        $devLabels[] = $labels[$attrs['rep']];
                     }
                 }
             }
@@ -313,12 +315,11 @@ class SenterComponent extends CApplicationComponent {
                 $priority = Priority::model()->findByPk($issue->priorityId);
                 if ($priority) {
                     $labels = $priority->getDevLabels();
-                    if (isset($labels[$issue->clientSource]) && $labels[$issue->clientSource]) {
-                        $devLabels[] = $labels[$issue->clientSource];
+                    if (isset($labels[$attrs['rep']]) && $labels[$attrs['rep']]) {
+                        $devLabels[] = $labels[$attrs['rep']];
                     }
                 }
             }
-
 
             $devAttrs = array (
                 'rep' => $attrs['rep'],
@@ -327,10 +328,9 @@ class SenterComponent extends CApplicationComponent {
                 'labels' => $devLabels,
             );
 
-            $driver = $this->getDevDriver();
-            $devIssue = $driver->addDevIssue($devAttrs);
+            $devIssue = $devDriver->addDevIssue($devAttrs);
             if ($devIssue) {
-                $issue->devSource = $driver->getDriverName();
+                $issue->devSource = $devDriver->getDriverName();
                 $issue->devSourceId = $devIssue->id;
                 if ($issue->save())
                     return true;

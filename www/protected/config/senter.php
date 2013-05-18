@@ -7,12 +7,16 @@ return array (
 			'clientDrivers' => array(
 				'zendesk' => array (
 					'class' => 'SenterZendeskDriver',
+                    'user' => $params['zendesk']['user'],
+                    'apiUrl' => $params['zendesk']['apiUrl'],
+                    'apiKey' => $params['zendesk']['apiKey'],
 				),
 			),
             'devDriver' => array (
                 'class' => 'SenterGitHubDriver',
-                'login' => 'stepanoff',
-                'password' => 'ghjntrn123',
+                'login' => $params['github']['login'],
+                'password' => $params['github']['password'],
+                'githubUser' => $params['github']['githubUser'],
             ),
 		);
 ?>

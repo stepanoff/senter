@@ -13,10 +13,13 @@ class SenterZendeskDriver extends SenterDriverBase {
         parent::init($component, $options);
     }
 
+    protected $apiUrl;
+    protected $apiKey;
+    protected $user;
 
     public function createNewIssues ()
     {
-        $data = curlWrap("/tickets/recent.json", null, "GET");
+        $data = $this->curlWrap("/tickets/recent.json", null, "GET");
 
         if ($data && is_object($data)) {
             /*
@@ -57,7 +60,7 @@ class SenterZendeskDriver extends SenterDriverBase {
     public function createIssues ()
     {
         $page = 14;
-        $data = curlWrap("/tickets.json?page=".$page, null, "GET");
+        $data = $this->curlWrap("/tickets.json?page=".$page, null, "GET");
 
         if ($data && is_object($data)) {
             if ($data->error) {
@@ -94,7 +97,7 @@ class SenterZendeskDriver extends SenterDriverBase {
                     $this->getComponent()->addIssue($attrs);
                 }
                 $page++;
-                $data = curlWrap("/tickets.json?page=".$page, null, "GET");
+                $data = $this->curlWrap("/tickets.json?page=".$page, null, "GET");
             }
 
         }
@@ -105,7 +108,7 @@ class SenterZendeskDriver extends SenterDriverBase {
     public function getOrganizations ()
     {
         $res = array();
-        $data = curlWrap("/organizations.json", null, "GET");
+        $data = $this->curlWrap("/organizations.json", null, "GET");
 
         if ($data && is_object($data) && $data->organizations) {
             foreach ($data->organizations as $org) {
@@ -122,7 +125,7 @@ class SenterZendeskDriver extends SenterDriverBase {
     public function getRequesters ()
     {
         $res = array();
-        $data = curlWrap("/users.json", null, "GET");
+        $data = $this->curlWrap("/users.json", null, "GET");
 
         if ($data && is_object($data) && $data->users) {
             foreach ($data->users as $user) {
@@ -169,55 +172,58 @@ class SenterZendeskDriver extends SenterDriverBase {
     {
         $modelName = $this->issueModel;
         $zendeskIssue = $modelName::model()->findByPk($issue->clientSourceId);
+
         if (!$zendeskIssue)
+            return true;
+
+        $issueInfo = $this->curlWrap("/tickets/".$zendeskIssue->externalId.".json", null, "GET");
+        if (!$issueInfo)
             return false;
 
+        $currentStatus = $this->convertStatus($issueInfo->ticket->status);
         $updateStatus = true;
+        $sendComment = true;
+        $comment = '';
+        $status = 'new';
+
         switch ($action) {
             case Issue::ACTION_SOLVED:
-                $res = curlWrap("/tickets/".$zendeskIssue->externalId.".json", CJSON::encode(array(
-                    "ticket" => array(
-                         'comment' => array(
-                             'type' => 'Comment',
-                             'body' => 'Проверка и тестирование задачи завершено. Задача ждет выкатки обновлений на живой сайт.',
-                             'public' => true,
-                         ),
-                    ))), "PUT");
                 $zendeskIssue->status = ZendeskIssue::STATUS_SOLVED;
-                if (!$res) {
-                    $updateStatus = false;
-                }
+                $comment = 'Проверка и тестирование задачи завершено. Задача ждет выкатки обновлений на живой сайт.';
+                $status = 'open';
                 break;
 
             case Issue::ACTION_REVIEW:
-                $res = curlWrap("/tickets/".$zendeskIssue->externalId.".json", CJSON::encode(array(
-                    "ticket" => array(
-                         'comment' => array(
-                             'type' => 'Comment',
-                             'body' => 'Задача передана на проверку. После прохождения проверки, задача будет влита в основной код сайта.',
-                             'public' => true,
-                         ),
-                    ))), "PUT");
-                if (!$res) {
-                   $updateStatus = false;
-                }
+                $zendeskIssue->status = ZendeskIssue::STATUS_OPEN;
+                $comment = 'Задача передана на проверку. После прохождения проверки, задача будет влита в основной код сайта.';
+                $status = 'open';
                 break;
 
             case Issue::ACTION_PROCESS:
-                $res = curlWrap("/tickets/".$zendeskIssue->externalId.".json", CJSON::encode(array(
-                    "ticket" => array(
-                        'status' => 'open',
-                        'comment' => array(
-                            'type' => 'Comment',
-                            'body' => 'Задача взята разраотчиком в разработку. После выполнения и тестирования, задача будет влита в основной код сайта.',
-                            'public' => true,
-                         ),
-                    ))), "PUT");
                 $zendeskIssue->status = ZendeskIssue::STATUS_OPEN;
-                if (!$res) {
-                   $updateStatus = false;
-                }
+                $comment = 'Задача взята разраотчиком в разработку. После выполнения и тестирования, задача будет влита в основной код сайта.';
+                $status = 'open';
                 break;
+        }
+
+        // не отправляем камент если в системе постановки задач статус и так уже соответствующий или тикет уже закрыт
+        if ($currentStatus >= $zendeskIssue->status) {
+            $sendComment = false;
+        }
+
+        if ($sendComment) {
+            $res = $this->curlWrap("/tickets/".$zendeskIssue->externalId.".json", CJSON::encode(array(
+                "ticket" => array(
+                     'comment' => array(
+                         'status' => $status,
+                         'type' => 'Comment',
+                         'body' => $comment,
+                         'public' => true,
+                     ),
+                ))), "PUT");
+            if (!$res) {
+                $updateStatus = false;
+            }
         }
 
         if ($updateStatus) {
@@ -246,7 +252,7 @@ class SenterZendeskDriver extends SenterDriverBase {
             $openedTickets = $tmp;
 
             // берем эти тикеты с зендеска, смотрим какие надо переоткрыть, какие отправить на гитхаб
-            $zdTickets = curlWrap("/tickets/show_many.json?ids=".implode(',', array_keys($openedTickets))."", null, "GET");
+            $zdTickets = $this->curlWrap("/tickets/show_many.json?ids=".implode(',', array_keys($openedTickets))."", null, "GET");
             foreach ($zdTickets->tickets as $zdTicket) {
                 if ($zdTicket->tags) {
                     $ticket = $openedTickets[$zdTicket->id];
@@ -256,7 +262,7 @@ class SenterZendeskDriver extends SenterDriverBase {
                     foreach ($zdTicket->tags as $tag) {
                         $sendData = self::getSendToDevDataFromTag($tag);
                         if ($sendData) {
-                            $audit = curlWrap("/tickets/".$zdTicket->id."/audits.json", null, "GET");
+                            $audit = $this->curlWrap("/tickets/".$zdTicket->id."/audits.json", null, "GET");
                             if ($audit && $audit->audits) {
                                 foreach ($audit->audits as $a) {
                                     $break = false;
@@ -287,7 +293,7 @@ class SenterZendeskDriver extends SenterDriverBase {
                         );
 
                         if ($this->getComponent()->addDevIssue($attrs)) {
-                            $zdTickets = curlWrap("/tickets/".$zdTicket->id.".json", CJSON::encode(array('comment' => 'Задача передана в отдел разработки')), "PUT");
+                            $zdTickets = $this->curlWrap("/tickets/".$zdTicket->id.".json", CJSON::encode(array('comment' => 'Задача передана в отдел разработки')), "PUT");
                         }
                     }
                 }
@@ -321,47 +327,41 @@ class SenterZendeskDriver extends SenterDriverBase {
         return $res;
     }
 
-}
 
-// todo: параметры задавать в конфиге
-define("ZDAPIKEY", "Xp4IgBmutYY0QzFp6blXLtHQRRtH4j0vANhLoRQD");
-define("ZDUSER", "stenlex@gmail.com");
-define("ZDURL", "https://mediasite.zendesk.com/api/v2");
+    public function curlWrap ($url, $json, $action)
+    {
+        $ch = curl_init();
+        curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true);
+        curl_setopt($ch, CURLOPT_MAXREDIRS, 10 );
+        curl_setopt($ch, CURLOPT_URL, $this->apiUrl.$url);
+        curl_setopt($ch, CURLOPT_USERPWD, $this->user."/token:".$this->apiKey);
+        switch($action){
+            case "POST":
+                curl_setopt($ch, CURLOPT_CUSTOMREQUEST, "POST");
+                curl_setopt($ch, CURLOPT_POSTFIELDS, $json);
+                break;
+            case "GET":
+                curl_setopt($ch, CURLOPT_CUSTOMREQUEST, "GET");
+                break;
+            case "PUT":
+                curl_setopt($ch, CURLOPT_CUSTOMREQUEST, "PUT");
+                curl_setopt($ch, CURLOPT_POSTFIELDS, $json);
+                break;
+            case "DELETE":
+                curl_setopt($ch, CURLOPT_CUSTOMREQUEST, "DELETE");
+                break;
+            default:
+                break;
+        }
 
-/* Note: do not put a trailing slash at the end of v2 */
+        curl_setopt($ch, CURLOPT_HTTPHEADER, array('Content-type: application/json'));
+        curl_setopt($ch, CURLOPT_USERAGENT, "MozillaXYZ/1.0");
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($ch, CURLOPT_TIMEOUT, 10);
+        $output = curl_exec($ch);
+        curl_close($ch);
+        $decoded = json_decode($output);
+        return $decoded;
+    }
 
-function curlWrap($url, $json, $action)
-{
-	$ch = curl_init();
-	curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true);
-	curl_setopt($ch, CURLOPT_MAXREDIRS, 10 );
-	curl_setopt($ch, CURLOPT_URL, ZDURL.$url);
-	curl_setopt($ch, CURLOPT_USERPWD, ZDUSER."/token:".ZDAPIKEY);
-	switch($action){
-		case "POST":
-			curl_setopt($ch, CURLOPT_CUSTOMREQUEST, "POST");
-			curl_setopt($ch, CURLOPT_POSTFIELDS, $json);
-			break;
-		case "GET":
-			curl_setopt($ch, CURLOPT_CUSTOMREQUEST, "GET");
-			break;
-		case "PUT":
-			curl_setopt($ch, CURLOPT_CUSTOMREQUEST, "PUT");
-			curl_setopt($ch, CURLOPT_POSTFIELDS, $json);
-			break;
-		case "DELETE":
-			curl_setopt($ch, CURLOPT_CUSTOMREQUEST, "DELETE");
-			break;
-		default:
-			break;
-	}
-
-	curl_setopt($ch, CURLOPT_HTTPHEADER, array('Content-type: application/json'));
-	curl_setopt($ch, CURLOPT_USERAGENT, "MozillaXYZ/1.0");
-	curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-	curl_setopt($ch, CURLOPT_TIMEOUT, 10);
-	$output = curl_exec($ch);
-	curl_close($ch);
-	$decoded = json_decode($output);
-	return $decoded;
 }
