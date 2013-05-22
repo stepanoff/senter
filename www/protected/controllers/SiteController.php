@@ -8,13 +8,44 @@ class SiteController extends VController
 
 	public function actionIndex()
 	{
+        $newIssues = array();
+        $inProcessIssues = array();
+        $onReviewIssues = array();
+        $solvedIssues = array();
+
+        $allIssues = Issue::model()->notClosed()->inDevelopment()->orderPriority()->findAll();
+        foreach ($allIssues as $issue) {
+            if ($issue->isNew()) {
+                $newIssues[] = $issue;
+            }
+            elseif ($issue->isInProcess()) {
+                $inProcessIssues[] = $issue;
+            }
+            elseif ($issue->isOnReview()) {
+                $onReviewIssues[] = $issue;
+            }
+            elseif ($issue->isSolved()) {
+                $solvedIssues[] = $issue;
+            }
+
+        }
+
+        $this->render('main', array(
+            'newIssues' => $newIssues,
+            'inProcessIssues' => $inProcessIssues,
+            'onReviewIssues' => $onReviewIssues,
+            'solvedIssues' => $solvedIssues,
+        ));
+
+        die();
+	}
+
+    public function actionProcess ()
+    {
         $senter = Yii::app()->senter;
-        //$senter->test(); // закрываем тикеты, выкаченные на живой сайт
-        //die();
-        //$this->render('main', array());
-
-        //$senter->createIssues(); // выгружаем все тикеты из сервисов техподдержек
-
+//        $senter->test();
+        $senter->synchronizeIssues ();
+        die();
         $senter->markClosedIssues(); // закрываем тикеты, выкаченные на живой сайт
         $senter->markSolvedIssues();// комментируем тикеты, влитые в основную ветку
         $senter->markReviewIssues(); // комментируем тикеты, отданные на проверку
@@ -23,6 +54,7 @@ class SiteController extends VController
         $senter->uploadOpenIssuesToDev (); // отправляем новые тикеты в систему тикетов разработки
         die();
 
-	}
+    }
+
 
 }

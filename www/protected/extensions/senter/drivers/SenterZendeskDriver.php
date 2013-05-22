@@ -49,7 +49,7 @@ class SenterZendeskDriver extends SenterDriverBase {
                     'organization' => $ticket->organization_id,
                     'requester' => $ticket->requester_id,
                 );
-                $this->getComponent()->addIssue($attrs);
+                $this->getComponent()->addIssueFromClient($attrs);
             }
         }
     }
@@ -94,7 +94,7 @@ class SenterZendeskDriver extends SenterDriverBase {
                         'title' => $ticket->subject,
                         'body' => $ticket->description,
                     );
-                    $this->getComponent()->addIssue($attrs);
+                    $this->getComponent()->addIssueFromClient($attrs);
                 }
                 $page++;
                 $data = $this->curlWrap("/tickets.json?page=".$page, null, "GET");
@@ -102,6 +102,36 @@ class SenterZendeskDriver extends SenterDriverBase {
 
         }
 
+    }
+
+    public function synchronizeIssues ()
+    {
+        $issues = array();
+        $tmp = ZendeskIssue::model()->notClosed()->findAll();
+        $ids = array();
+        foreach ($tmp as $issue) {
+            $ids[] = $issue->externalId;
+            $issues[$issue->externalId] = $issue;
+        }
+        if ($ids) {
+            $zdTickets = $this->curlWrap("/tickets/show_many.json?ids=".implode(',', $ids)."", null, "GET");
+            if ($zdTickets) {
+                foreach ($zdTickets->tickets as $zdTicket) {
+                    $newStatus = self::convertStatus($zdTicket->status);
+                    if ($issues[$zdTicket->id]->status != $newStatus) {
+                       $issues[$zdTicket->id]->status = $newStatus;
+                        $issues[$zdTicket->id]->save();
+                    }
+                }
+            }
+        }
+
+        $this->createNewIssues();
+    }
+
+    public function getProcessIssues ()
+    {
+        return ZendeskIssue::model()->notClosed()->findAll();
     }
 
 
@@ -204,10 +234,16 @@ class SenterZendeskDriver extends SenterDriverBase {
                 $comment = 'Задача взята разраотчиком в разработку. После выполнения и тестирования, задача будет влита в основной код сайта.';
                 $status = 'open';
                 break;
+
+            case Issue::ACTION_REOPEN:
+                $zendeskIssue->status = ZendeskIssue::STATUS_OPEN;
+                $comment = 'Задача взята разраотчиком в доработку.';
+                $status = 'open';
+                break;
         }
 
         // не отправляем камент если в системе постановки задач статус и так уже соответствующий или тикет уже закрыт
-        if ($currentStatus >= $zendeskIssue->status) {
+        if ($currentStatus > $zendeskIssue->status) {
             $sendComment = false;
         }
 
@@ -292,7 +328,7 @@ class SenterZendeskDriver extends SenterDriverBase {
                             'clientSourceId' => $ticket->id,
                         );
 
-                        if ($this->getComponent()->addDevIssue($attrs)) {
+                        if ($this->getComponent()->sendIssueToDev($attrs)) {
                             $zdTickets = $this->curlWrap("/tickets/".$zdTicket->id.".json", CJSON::encode(array('comment' => 'Задача передана в отдел разработки')), "PUT");
                         }
                     }
@@ -362,6 +398,20 @@ class SenterZendeskDriver extends SenterDriverBase {
         curl_close($ch);
         $decoded = json_decode($output);
         return $decoded;
+    }
+
+    public function getIssueById ($id)
+    {
+        $modelName = $this->issueModel;
+        return $modelName::model()->findByPk($id);
+    }
+
+    public function removeClientIssueByIssue ($issue)
+    {
+        $model = ZendeskIssue::model()->findByPk($issue->clientSourceId);
+        if ($model) {
+            return $model->delete();
+        }
     }
 
 }

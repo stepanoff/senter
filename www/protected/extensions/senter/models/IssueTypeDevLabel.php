@@ -61,4 +61,13 @@ class IssueTypeDevLabel extends CActiveRecord
         return $this;
     }
 
+    public function byRep($rep)
+    {
+        $alias = $this->getTableAlias();
+        $this->getDbCriteria()->mergeWith(array(
+            'condition' => $alias.'.rep = "'.$rep.'"',
+        ));
+        return $this;
+    }
+
 }

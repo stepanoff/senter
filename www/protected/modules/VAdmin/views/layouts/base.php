@@ -17,6 +17,7 @@
 
     <?php
         $this->widget('VAdminMenuWidget', array('items' => array(
+            array ('title' => 'Тикеты', 'link' => '/admin/adminIssue/'),
             array ('title' => 'Разработчики', 'link' => '/admin/adminDeveloper/'),
             array ('title' => 'Организации', 'link' => '/admin/adminOrg/'),
             array ('title' => 'Постановщики задач', 'link' => '/admin/adminRequester/'),

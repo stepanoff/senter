@@ -59,8 +59,17 @@ class GitHubIssue extends CActiveRecord
     {
         $alias = $this->getTableAlias();
         return array(
+            'inProcess' => array(
+                'condition' => $alias.'.status IN ('. self::STATUS_OPEN .')',
+            ),
+            'isSolved' => array(
+                'condition' => $alias.'.status IN ('. self::STATUS_CLOSED .')',
+            ),
             'onReview' => array(
-                'condition' => $alias.'.status IN ('. self::STATUS_REVIEW .') AND `pullRequestNum` > 0',
+                'condition' => $alias.'.status IN ('. self::STATUS_REVIEW .')',
+            ),
+            'notClosed' => array(
+                'condition' => $alias.'.status IN ('. self::STATUS_NEW .', '. self::STATUS_OPEN .', '. self::STATUS_REVIEW .')',
             ),
             'unassigned' => array(
                 'condition' => $alias.'.assigneeId = 0',
@@ -106,6 +115,17 @@ class GitHubIssue extends CActiveRecord
         if ($pulls)
             return $pulls[(count($pulls)-1)];
         return false;
+    }
+
+    public function addPullRequest ($pullRequest)
+    {
+        $this->pullRequests[] = $pullRequest;
+        return true;
+    }
+
+    public function getNumber()
+    {
+        return $this->repNum;
     }
 
 }

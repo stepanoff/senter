@@ -83,84 +83,167 @@ class SenterGithubDriver extends CComponent {
 
     public function test () {
         //$this->_client->api('issue')->labels()->replace($this->githubUser, 'gpor', 1980, array('bug') );
-        $repo   = $this->_client->getHttpClient()->put('repos/mediasite/gpor/issues/1980/labels', array(1=>'bug'));
+        //$repo   = $this->_client->getHttpClient()->put('repos/mediasite/gpor/issues/1980/labels', array(1=>'bug'));
+        //$res = $this->_client->getHttpClient()->get('repos/mediasite/old/issues/1046/events');
+
+        $res  = $this->_client->getHttpClient()->get('repos/mediasite/gpor/issues');
+        //$res = $this->_client->getHttpClient()->get('repos/mediasite/gpor/pulls', array('state' => 'closed'));
+        //$res = $this->_client->getHttpClient()->get('repos/mediasite/old/pulls/1051');
+        //$res = $this->_client->getHttpClient()->get('repos/mediasite/gpor/commits/fe4479c4dd10eecb6c4b28fabc0bcd36bb9494e4');
+        print_r($res->getContent());
+        die();
+
+        //$this->synchronizeIssues();
         die();
     }
 
     public function getSolvedIssues ()
     {
-        $res = array();
-        $reviewTasks = GitHubIssue::model()->onReview()->findAll();
-        foreach ($reviewTasks as $reviewTask) {
-            $pullRequest = $this->_client->api('pull_request')->show($this->githubUser, $reviewTask->rep, $reviewTask->pullRequestNum);
-            if ($pullRequest) {
-                if ($pullRequest['state'] == 'closed' && $pullRequest['merged']) {
-                    $reviewTask->addPullRequest($pullRequest);
-                    $res[] = $reviewTask;
-                }
-            }
-        }
+        $res = GitHubIssue::model()->isSolved()->findAll();
         return $res;
     }
 
     public function getReviewIssues ()
     {
-        $res = array();
-
-        $allOpenPullRequests = array();
-        foreach ($this->repos as $repo) {
-            $allOpenPullRequests[$repo] = $this->_client->api('pull_request')->all($this->githubUser, $repo, 'open');
-        }
-        foreach ($allOpenPullRequests as $repo => $openPullRequests)
-        {
-            foreach ($openPullRequests as $openPullRequest) {
-                if (preg_match_all('#\#([\d]+)#', $openPullRequest['body'], $matches)) {
-                    $taskNum = $matches[1][0];
-                    $task = GitHubIssue::model()->byRep($repo)->byRepNum($taskNum)->find();
-                    if ($task && $task->status < GitHubIssue::STATUS_REVIEW) {
-                        $task->addPullRequest($openPullRequest);
-                        $res[] = $task;
-                    }
-                }
-            }
-        }
+        $res = GitHubIssue::model()->onReview()->findAll();
         return $res;
     }
 
     public function getProcessIssues ()
     {
-        $res = array();
-
-        $allIssues = array();
-        foreach ($this->repos as $repo) {
-            $allIssues[$repo] = GitHubIssue::model()->byRep($repo)->unassigned()->findAll();
-        }
-        foreach ($allIssues as $repo => $issues) {
-            foreach ($issues as $issue) {
-                $unassignedTask = $this->_client->api('issue')->show($this->githubUser, $repo, $issue->repNum);
-                if ($unassignedTask) {
-                    if ($unassignedTask['assignee'] && $unassignedTask['assignee']['id']) {
-                        if ($issue->isOpen()) {
-                            $issue->assigneeId = $unassignedTask['assignee']['id'];
-                            $res[] = $issue;
-                        }
-
-                        $developer = Developer::model()->byExternalId($unassignedTask['assignee']['id'])->find();
-                        if (!$developer) {
-                            $developer = new Developer();
-                            $developer->externalId = $unassignedTask['assignee']['id'];
-                            $developer->username = $unassignedTask['assignee']['login'];
-                            $developer->avatarUrl = $unassignedTask['assignee']['avatar_url'];
-                            $developer->url = $unassignedTask['assignee']['url'];
-                            $developer->save();
-                        }
-                    }
-                }
-            }
-        }
+        $res = GitHubIssue::model()->inProcess()->findAll();
 
         return $res;
 
+    }
+
+    public function synchronizeIssues ()
+    {
+        $this->createNwIssues();
+        die();
+
+        $lastCommits = array();
+        foreach ($this->repos as $repo) {
+            $lastCommits[$repo] = array();
+            $tmp = $this->_client->getHttpClient()->get('repos/'.$this->githubUser.'/'.$repo.'/commits');
+            if ($tmp)
+                $lastCommits[$repo] = $tmp->getContent();
+        }
+
+        $pullRequests = array();
+        foreach ($this->repos as $repo) {
+            $pullRequests[$repo] = array();
+            $tmp = $this->_client->getHttpClient()->get('repos/'.$this->githubUser.'/'.$repo.'/pulls', array('state' => 'closed'));
+            if ($tmp)
+                $pullRequests[$repo] = array_merge($pullRequests[$repo], $tmp->getContent());
+
+            $tmp = $this->_client->getHttpClient()->get('repos/'.$this->githubUser.'/'.$repo.'/pulls', array('state' => 'open'));
+            if ($tmp)
+                $pullRequests[$repo] = array_merge($pullRequests[$repo], $tmp->getContent());
+        }
+
+        $issues = GitHubIssue::model()->notClosed()->findAll();
+        foreach ($issues as $issue) {
+            $githubTask = $this->_client->api('issue')->show($this->githubUser, $issue->rep, $issue->repNum);
+            if (!$githubTask)
+                continue;
+
+            if (!$issue->assigneeId) {
+                if ($githubTask['assignee'] && $githubTask['assignee']['id']) {
+                    $issue->assigneeId = $githubTask['assignee']['id'];
+                    $developer = Developer::model()->byExternalId($githubTask['assignee']['id'])->find();
+                    if (!$developer) {
+                        $developer = new Developer();
+                        $developer->externalId = $githubTask['assignee']['id'];
+                        $developer->username = $githubTask['assignee']['login'];
+                        $developer->avatarUrl = $githubTask['assignee']['avatar_url'];
+                        $developer->url = $githubTask['assignee']['url'];
+                        $developer->save();
+                    }
+                    if ($issue->status < GitHubIssue::STATUS_OPEN)
+                        $issue->status = GitHubIssue::STATUS_OPEN;
+                }
+            }
+
+            if ($githubTask['state'] == 'closed') {
+                // проверяем на ревью или уже сделано
+                $res = $this->_client->getHttpClient()->get('repos/'.$this->githubUser.'/'.$issue->rep.'/issues/'.$githubTask['number'].'/events');
+                if ($res)
+                    $issueEvents = $res->getContent();
+                foreach ($issueEvents as $issueEvent) {
+                    if ($issueEvent['event'] == 'referenced' || $issueEvent['event'] == 'closed' || $issueEvent['event'] == 'merged') {
+                        $pullRequest = self::findPullRequestByCommitSha($issueEvent['commit_id'], $pullRequests[$issue->rep]);
+                        if ($pullRequest) {
+                            $issue->addPullRequest($pullRequest);
+                        }
+                    }
+                }
+                $pull = $issue->getPullRequest();
+                if ($pull && $pull['base']['ref'] == 'master') {
+                    $issue->masterCommitSha = $pull['base']['sha'];
+                    $issue->status = GitHubIssue::STATUS_REVIEW;
+                }
+                if ($pull && $pull['merged_at']) {
+                    $issue->status = GitHubIssue::STATUS_CLOSED;
+                    $issue->mergedAt = date('Y-m-d G:i:s', strtotime($pull['merged_at']));
+                }
+
+                if (!$pull) {
+                    $issue->status = GitHubIssue::STATUS_CLOSED;
+                    $issue->mergedAt = date('Y-m-d G:i:s', time());
+                }
+            }
+            $issue->save();
+
+        }
+
+    }
+
+    public function createNwIssues ()
+    {
+        foreach ($this->repos as $repo) {
+            $res = $this->_client->getHttpClient()->get('repos/'.$this->githubUser.'/'.$repo.'/issues', array('sort' => 'created', 'direction' => 'desc' ));
+            if ($res) {
+                $openedIssues = $res->getContent();
+            }
+            print_r($openedIssues);
+            continue;
+            foreach ($openedIssues as $githubIssue) {
+                // пропускаем пулл-реквесты
+                if ($githubIssue['pull_request'] && !empty($githubIssue['html_url'])) {
+                    continue;
+                }
+                // пропускаем milestones
+                if ($githubIssue['milestone']) {
+                    continue;
+                }
+
+                $issue = GitHubIssue::model()->byRep($repo)->byRepNum($githubIssue['number'])->find();
+                if (!$issue) {
+                    $issue = new GitHubIssue();
+                    $issue->rep = $repo;
+                    $issue->repNum = $githubIssue['number'];
+                    $issue->status = GitHubIssue::STATUS_NEW;
+                    if ($issue->save()) {
+                        $labels = array();
+                        if ($githubIssue['labels']) {
+                            foreach ($githubIssue['labels'] as $l) {
+                                $labels[] = $l['name'];
+                            }
+                        }
+                        $attrs = array (
+                            'title' => $githubIssue['title'],
+                            'body' => $githubIssue['body'],
+                            'labels' => $labels,
+                            'devSource' => $this->getDriverName(),
+                            'devSourceId' => $issue->id,
+                        );
+                        $this->getComponent()->addIssueFromDev($attrs);
+                    }
+
+                }
+            }
+        }
     }
 
 
@@ -168,18 +251,12 @@ class SenterGithubDriver extends CComponent {
     {
         switch ($status) {
             case Issue::ACTION_SOLVED:
-                $pull = $issue->getPullRequest();
-                if ($pull)
-                    $issue->masterCommitSha = $pull['head']['sha'];
                 $issue->status = GitHubIssue::STATUS_CLOSED;
                 if ($issue->save())
                     return true;
                 break;
 
             case Issue::ACTION_REVIEW:
-                $pull = $issue->getPullRequest();
-                if ($pull)
-                    $issue->pullRequestNum = $pull['number'];
                 $issue->status = GitHubIssue::STATUS_REVIEW;
                 if ($issue->save())
                     return true;
@@ -190,12 +267,19 @@ class SenterGithubDriver extends CComponent {
                 if ($issue->save())
                     return true;
                 break;
+
+            case Issue::ACTION_REOPEN:
+                $issue->status = GitHubIssue::STATUS_OPEN;
+                // todo: поменять статус на гитхабе
+                if ($issue->save())
+                    return true;
+                break;
         }
         return false;
     }
 
 
-    public function addDevIssue ($attrs)
+    public function sendIssueToDev ($attrs)
     {
         $res = $this->_client->api('issue')->create($this->githubUser, $attrs['rep'], array(
             'title' => $attrs['title'],
@@ -204,7 +288,11 @@ class SenterGithubDriver extends CComponent {
         if ($res && is_array($res) && $res['id']) {
 
             if ($attrs['labels']) {
-                $this->_client->api('issue')->labels()->replace($this->githubUser, $attrs['rep'], $res['number'], $attrs['labels']);
+                $labels = array();
+                foreach ($attrs['labels'] as $label) {
+                    $labels[] = array('name' => $label);
+                }
+                $this->_client->api('issue')->labels()->replace($this->githubUser, $attrs['rep'], $res['number'], $labels);
             }
 
             $task = new GitHubIssue();
@@ -215,6 +303,32 @@ class SenterGithubDriver extends CComponent {
                 return $task;
         }
         return false;
+    }
+
+    public function getIssueById ($id)
+    {
+        $modelName = $this->issueModel;
+        return $modelName::model()->findByPk($id);
+    }
+
+    public static function findPullRequestByCommitSha ($sha, $pulls)
+    {
+        $res = false;
+        foreach ($pulls as $pull) {
+            if ($pull['head']['sha'] == $sha) {
+                $res = $pull;
+                break;
+            }
+        }
+        return $res;
+    }
+
+    public function removeDevIssueByIssue ($issue)
+    {
+        $model = GitHubIssue::model()->findByPk($issue->devSourceId);
+        if ($model) {
+            return $model->delete();
+        }
     }
 
 

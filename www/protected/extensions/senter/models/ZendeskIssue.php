@@ -47,6 +47,9 @@ class ZendeskIssue extends CActiveRecord
             'inProcess' => array(
                 'condition' => $alias.'.status IN ('. self::STATUS_OPEN .', '. self::STATUS_NEW .')',
             ),
+            'notClosed' => array(
+                'condition' => $alias.'.status IN ('. self::STATUS_OPEN .', '. self::STATUS_NEW .', ' . self::STATUS_PENDING . ' )',
+            ),
         );
     }
 
