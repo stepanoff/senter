@@ -128,4 +128,10 @@ class GitHubIssue extends CActiveRecord
         return $this->repNum;
     }
 
+    public function getUrl()
+    {
+        $user = Yii::app()->getComponent('senter')->getDevDriver()->getRepOwner();
+        return 'https://github.com/'.$user.'/'.$this->rep.'/issues/'.$this->repNum;
+    }
+
 }

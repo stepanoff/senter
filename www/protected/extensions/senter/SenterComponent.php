@@ -7,11 +7,11 @@
 /*
  * todo:
  * 404 заменить на exception
- * Загрузка тикетов из гитхаба
- * Проверить, что с тикетами из гитхаба ничего не ломается
  * Проверить переоткрытие тикета
- * ПРоверить лишнюю отправку каментов
- * Редактирование тикетов - надо уметь руками выставлять приоритеты и типы
+ * Проверить лишнюю отправку каментов
+ * Редактирование тикетов - создавать тикеты и отправлять/обновлять в разработке
+ * Записывать всех, принимавших участие в работе над тикетом
+ * Показывать текущего assigneeId на доске
  */
 
 /**
@@ -57,7 +57,7 @@ class SenterComponent extends CApplicationComponent {
 		$driver = strtolower($driver);
 		$drivers = $this->getClientDrivers();
 		if (!isset($drivers[$driver]))
-			throw new CSenterException(500, 'Драйвер '.$driver.' не найден');
+			return false;
 		return $drivers[$driver];
 	}
 	
@@ -101,6 +101,30 @@ class SenterComponent extends CApplicationComponent {
 		return MailHelper::sendMailToAdmin($data);
 		
 	}
+
+    public function processIssues ()
+    {
+        echo "syncronize\n";
+        $this->synchronizeIssues ();
+
+        echo "mark closed issues\n";
+        $this->markClosedIssues(); // закрываем тикеты, выкаченные на живой сайт
+
+        echo "mark solved issues\n";
+        $this->markSolvedIssues();// комментируем тикеты, влитые в основную ветку
+
+        echo "mark review issues\n";
+        $this->markReviewIssues(); // комментируем тикеты, отданные на проверку
+
+        echo "mark process issues\n";
+        $this->markProcessIssues(); // комментируем тикеты, взятые в разработку
+
+//        $this->createNewIssues(); // выгружаем новые тикеты из сервисов техподдержек
+
+        echo "upload issues to dev\n";
+        $this->uploadOpenIssuesToDev (); // отправляем новые тикеты в систему тикетов разработки
+
+    }
 
     public function synchronizeIssues ()
     {
@@ -189,14 +213,14 @@ class SenterComponent extends CApplicationComponent {
                 $sourceIssue = Issue::model()->byDevSource($devDriver->getDriverName())->byDevId($issue->id)->find();
                 if ($sourceIssue && $sourceIssue->status < Issue::STATUS_PROCESS) {
                     $driver = $this->getClientDriver($sourceIssue->clientSource);
-                    if ($driver->markIssue($sourceIssue, Issue::ACTION_PROCESS)) {
+                    if (!$driver || $driver->markIssue($sourceIssue, Issue::ACTION_PROCESS)) {
                         $devDriver->markIssue($issue, Issue::ACTION_PROCESS);
 
-                        // todo: плохо, надо хотя бы bySource добавить
-                        $developer = Developer::model()->byExternalId($issue->assigneeId)->find();
+                        $developer = Developer::model()->byExternalId($issue->assigneeId)->bySource($devDriver->getDriverName())->find();
                         if ($developer) {
                             $sourceIssue->assigneeId = $developer->id;
                         }
+                        $sourceIssue->processDate = date('Y-m-d G:i:s', time());
                         $this->markIssue($sourceIssue, Issue::ACTION_PROCESS);
                     }
                 }
@@ -213,10 +237,15 @@ class SenterComponent extends CApplicationComponent {
         if ($issues) {
             foreach ($issues as $issue) {
                 $sourceIssue = Issue::model()->byDevSource($devDriver->getDriverName())->byDevId($issue->id)->find();
-                if ($sourceIssue && $sourceIssue->status < Issue::STATUS_SOLVED) {
+                if ($sourceIssue && $sourceIssue->status <= Issue::STATUS_SOLVED) {
                     $driver = $this->getClientDriver($sourceIssue->clientSource);
-                    if ($driver->markIssue($sourceIssue, Issue::ACTION_SOLVED)) {
+                    $driver = false;
+                    if (!$driver || $driver->markIssue($sourceIssue, Issue::ACTION_SOLVED)) {
                         $devDriver->markIssue($issue, Issue::ACTION_SOLVED);
+
+                        $collaborators = $devDriver->getCollaborators($issue);
+                        $sourceIssue->_collaborators = $collaborators;
+                        $sourceIssue->solvedDate = date('Y-m-d G:i:s', time());
                         $this->markIssue($sourceIssue, Issue::ACTION_SOLVED);
                     }
                 }
@@ -235,7 +264,7 @@ class SenterComponent extends CApplicationComponent {
                 $sourceIssue = Issue::model()->byDevSource($devDriver->getDriverName())->byDevId($issue->id)->find();
                 if ($sourceIssue && $sourceIssue->status < Issue::STATUS_REVIEW) {
                     $driver = $this->getClientDriver($sourceIssue->clientSource);
-                    if ($driver && $driver->markIssue($sourceIssue, Issue::ACTION_REVIEW)) {
+                    if (!$driver || $driver && $driver->markIssue($sourceIssue, Issue::ACTION_REVIEW)) {
                         $devDriver->markIssue($issue, Issue::ACTION_REVIEW);
                         $this->markIssue($sourceIssue, Issue::ACTION_REVIEW);
                     }
@@ -256,7 +285,7 @@ class SenterComponent extends CApplicationComponent {
                     $issueStatus = $driver->convertStatus ($issue->status, 'Issue');
                     if ($sourceIssue && $sourceIssue->status > Issue::STATUS_SOLVED && $issueStatus == Issue::STATUS_PROCESS) {
                         $driver = $this->getClientDriver($sourceIssue->clientSource);
-                        if ($driver && $driver->markIssue($sourceIssue, Issue::ACTION_REOPEN)) {
+                        if (!$driver || $driver && $driver->markIssue($sourceIssue, Issue::ACTION_REOPEN)) {
                             $devDriver->markIssue($issue, Issue::ACTION_REOPEN);
                             $this->markIssue($sourceIssue, Issue::ACTION_REOPEN);
                         }
@@ -335,6 +364,8 @@ class SenterComponent extends CApplicationComponent {
                 if ($priorityLabel) {
                     $priority = Priority::model()->findByPk($priorityLabel->priorityId);
                     if ($priority && $issue->priorityId != $priority->id) {
+                        if ($priority->estimate)
+                            $attrs['deadlineDate'] = date('Y-m-d G:i:s', time()+($priority->estimate*60*60));
                         $attrs['priority'] = $priority->number;
                         $attrs['priorityId'] = $priority->id;
                     }
@@ -364,12 +395,12 @@ class SenterComponent extends CApplicationComponent {
         if (!$issue) {
             $issue = new Issue();
         }
+        else if ($issue->devSource && $issue->devSourceId) {
+            return false;
+        }
+
         $issue->setAttributes($attrs);
         if ($issue->save()) {
-            if ($issue->devSource && $issue->devSourceId) {
-                return false;
-            }
-
             $devLabels = array();
             if ($issue->typeId) {
                 $type = IssueType::model()->findByPk($issue->typeId);
@@ -424,7 +455,7 @@ class SenterComponent extends CApplicationComponent {
                 $issue->status = Issue::STATUS_PROCESS;
                 break;
 
-            case Issue::ACTION_PRODUCTION:
+            case Issue::ACTION_CLOSED:
                 $issue->status = Issue::STATUS_PRODUCTION;
                 break;
 

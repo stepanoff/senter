@@ -70,4 +70,10 @@ class ZendeskIssue extends CActiveRecord
         return parent::beforeSave();
     }
 
+    public function getUrl()
+    {
+        // todo: вынести часть урла в настройки
+        return 'https://mediasite.zendesk.com/tickets/'.$this->externalId;
+    }
+
 }

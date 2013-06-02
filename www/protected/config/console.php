@@ -37,22 +37,55 @@ return array(
 
 	// autoloading model and component classes
 	'import'=>array(
-		'application.models.*',
-		'application.components.*',
         'application.models.*',
-		'application.extensions.*',
-    	'application.helpers.*',
-		'application.widgets.*',
+        'application.components.*',
+        'application.models.*',
+        'application.extensions.*',
+        'application.extensions.senter.*',
+        'application.extensions.senter.models.*',
+        'application.extensions.senter.drivers.*',
+        'application.helpers.*',
+        'application.widgets.*',
+
+        'application.modules.VAdmin.*',
+        'application.modules.VAdmin.controllers.*',
     ),
 
 	// application components
 	'components'=>array(
+        'clientScript'=>array(
+            'class'=>'application.components.ExtendedClientScript',
+            'combineFiles'=>false,
+            'compressCss'=>false,
+            'compressJs'=>false,
+        ),
         'urlManager'=>require(dirname(__FILE__).'/urlManager.php'),
-        
+
         'cache' => array(
-			'class' => 'CFileCache',
-			'cachePath' => ROOT_PATH. DS . 'protected' . DS . 'runtime' . DS . 'cache',
-		),
+            'class' => 'CFileCache'
+        ),
+        'db'=>array(
+            'connectionString'=>'mysql:host='.$params['dbHost'].';dbname='.$params['dbName'].((isset($params['dbPort'])&&$params['dbPort'])?';port='.$params['dbPort']:''),
+            'username'=>$params['dbUser'],
+            'password'=>$params['dbPass'],
+            'charset' => 'utf8', // PDO изначально не знает от charset'е соединения с СУБД, поэтому приходится указывать ручками. Я в шоке.
+        ),
+        'senter' => require(dirname(__FILE__).'/senter.php'),
+
+        'errorHandler' => array(
+            'class' => 'application.components.ExtendedErrorHandler'
+        ),
+        'localConfig' => array(
+            'class' => 'application.components.LocalConfigComponent'
+        ),
+        'VExtension' => array (
+            'class' => 'ext.VExtension.VExtensionComponent',
+            'staticUrl' => '',
+            'components' => array (
+            ),
+            'modules' => array (
+            ),
+        ),
         
         'log'=>array(
 			'class'=>'CLogRouter',
@@ -64,15 +97,6 @@ return array(
 				),
 			),
 		),
-        'errorHandler' => array(
-        	'class' => 'application.components.ExtendedErrorHandler'
-        ),
-        'db'=>array(
-            'connectionString'=>'mysql:host='.$params['dbHost'].';dbname='.$params['dbName'].((isset($params['dbPort'])&&$params['dbPort'])?';port='.$params['dbPort']:''),
-            'username'=>$params['dbUser'],
-            'password'=>$params['dbPass'],
-            'charset' => 'utf8', // PDO изначально не знает от charset'е соединения с СУБД, поэтому приходится указывать ручками. Я в шоке.
-        ),
 
 	),
 	'params'=>$params,

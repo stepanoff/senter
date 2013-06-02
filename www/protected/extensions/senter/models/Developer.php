@@ -24,6 +24,7 @@ class Developer extends CActiveRecord
             'avatarUrl' => 'Аватар',
             'url' => 'Профиль',
             'externalId' => 'Внешний id',
+            'source' => 'Система разработки',
         );
     }
 
@@ -31,7 +32,7 @@ class Developer extends CActiveRecord
     {
         return array(
             array('externalId', 'required'),
-            array('username, avatarUrl, url, externalId', 'safe')
+            array('username, avatarUrl, url, externalId, source', 'safe')
         );
     }
 
@@ -39,7 +40,16 @@ class Developer extends CActiveRecord
     {
         $alias = $this->getTableAlias();
         $this->getDbCriteria()->mergeWith(array(
-            'condition' => $alias.'.externalId = '.$id,
+            'condition' => $alias.'.externalId = "'.$id.'"',
+        ));
+        return $this;
+    }
+
+    public function bySource($source)
+    {
+        $alias = $this->getTableAlias();
+        $this->getDbCriteria()->mergeWith(array(
+            'condition' => $alias.'.source = "'.$source.'"',
         ));
         return $this;
     }

@@ -40,21 +40,9 @@ class SiteController extends VController
         die();
 	}
 
-    public function actionProcess ()
+    public function actionCommonStat ()
     {
-        $senter = Yii::app()->senter;
-//        $senter->test();
-        $senter->synchronizeIssues ();
-        die();
-        $senter->markClosedIssues(); // закрываем тикеты, выкаченные на живой сайт
-        $senter->markSolvedIssues();// комментируем тикеты, влитые в основную ветку
-        $senter->markReviewIssues(); // комментируем тикеты, отданные на проверку
-        $senter->markProcessIssues(); // комментируем тикеты, взятые в разработку
-        $senter->createNewIssues(); // выгружаем новые тикеты из сервисов техподдержек
-        $senter->uploadOpenIssuesToDev (); // отправляем новые тикеты в систему тикетов разработки
-        die();
-
+        $this->render ('commonStat', array());
     }
-
 
 }

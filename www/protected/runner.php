@@ -20,10 +20,9 @@ if (isset($_SERVER['argv'][2]) && $_SERVER['argv'][2]=='noinit')
 	$noinit = true;
 	
 
-if ( $noinit || Yii::app()->essentialData->initService($name) )
+if ( $noinit && $name == 'senter' /* || Yii::app()->senter->initService($name)*/ )
 {
-    echo date('Y-m-d H:i:s'), " - $name\n";
-	Yii::app()->essentialData->runService($name);
+	Yii::app()->senter->processIssues();
 }
 else {
     echo date('Y-m-d H:i:s'), " - $name. Not initalized.\n";

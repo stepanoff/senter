@@ -32,12 +32,13 @@ class SenterZendeskDriver extends SenterDriverBase {
                 $modelName = $this->issueModel;
 
                 $zendeskIssue = $modelName::model()->byExternalId($ticket->id)->find();
-                if (!$zendeskIssue) {
-                    $zendeskIssue = new ZendeskIssue;
-                    $zendeskIssue->externalId = $ticket->id;
-                    $zendeskIssue->status = self::convertStatus($ticket->status);
-                    $zendeskIssue->save();
-                }
+                if ($zendeskIssue)
+                    continue;
+
+                $zendeskIssue = new ZendeskIssue;
+                $zendeskIssue->externalId = $ticket->id;
+                $zendeskIssue->status = self::convertStatus($ticket->status);
+                $zendeskIssue->save();
 
                 $attrs = array(
                     'clientSourceId' => $zendeskIssue->id,
@@ -59,6 +60,7 @@ class SenterZendeskDriver extends SenterDriverBase {
      */
     public function createIssues ()
     {
+        return true;
         $page = 14;
         $data = $this->curlWrap("/tickets.json?page=".$page, null, "GET");
 
@@ -115,7 +117,7 @@ class SenterZendeskDriver extends SenterDriverBase {
         }
         if ($ids) {
             $zdTickets = $this->curlWrap("/tickets/show_many.json?ids=".implode(',', $ids)."", null, "GET");
-            if ($zdTickets) {
+            if ($zdTickets && is_object($zdTickets)) {
                 foreach ($zdTickets->tickets as $zdTicket) {
                     $newStatus = self::convertStatus($zdTicket->status);
                     if ($issues[$zdTicket->id]->status != $newStatus) {
@@ -200,11 +202,7 @@ class SenterZendeskDriver extends SenterDriverBase {
 
     public function markIssue ($issue, $action)
     {
-        $modelName = $this->issueModel;
-        $zendeskIssue = $modelName::model()->findByPk($issue->clientSourceId);
-
-        if (!$zendeskIssue)
-            return true;
+        $zendeskIssue = ZendeskIssue::model()->findByPk($issue->clientSourceId);
 
         $issueInfo = $this->curlWrap("/tickets/".$zendeskIssue->externalId.".json", null, "GET");
         if (!$issueInfo)
@@ -283,12 +281,16 @@ class SenterZendeskDriver extends SenterDriverBase {
         while ($openedTickets) {
             $tmp = array();
             foreach ($openedTickets as $t) {
-                $tmp[$t->externalId] = $t;
+                $issue = Issue::model()->byClientSource($this->getDriverName())->byClientId($t->externalId)->find();
+                if (!$issue)
+                    $tmp[$t->externalId] = $t;
             }
             $openedTickets = $tmp;
 
             // берем эти тикеты с зендеска, смотрим какие надо переоткрыть, какие отправить на гитхаб
             $zdTickets = $this->curlWrap("/tickets/show_many.json?ids=".implode(',', array_keys($openedTickets))."", null, "GET");
+            if (!$zdTickets && !is_object($zdTickets))
+                return false;
             foreach ($zdTickets->tickets as $zdTicket) {
                 if ($zdTicket->tags) {
                     $ticket = $openedTickets[$zdTicket->id];
@@ -356,7 +358,7 @@ class SenterZendeskDriver extends SenterDriverBase {
     {
         $res = false;
         $tmp = explode('_', $tag);
-        if (($tmp[1] == 'gitHub' || $tmp[1] == 'github' ) && count($tmp) == 3) {
+        if (count($tmp) == 3 && ($tmp[1] == 'gitHub' || $tmp[1] == 'github' ) ) {
             $res = array();
             $res['rep'] = $tmp[2];
         }
@@ -368,6 +370,7 @@ class SenterZendeskDriver extends SenterDriverBase {
     {
         $ch = curl_init();
         curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true);
+        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
         curl_setopt($ch, CURLOPT_MAXREDIRS, 10 );
         curl_setopt($ch, CURLOPT_URL, $this->apiUrl.$url);
         curl_setopt($ch, CURLOPT_USERPWD, $this->user."/token:".$this->apiKey);

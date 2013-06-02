@@ -3,6 +3,9 @@ defined('STDIN') or define('STDIN', fopen('php://stdin', 'r'));
 defined('YII_DEBUG') or define('YII_DEBUG',true);
 error_reporting(E_ALL | E_STRICT);
 
+// to_do: vendor path надо выносить в настройки
+require_once dirname(__FILE__) . '/../../vendor/autoload.php';
+
 mb_internal_encoding("UTF-8");
 
 define('DS', DIRECTORY_SEPARATOR);

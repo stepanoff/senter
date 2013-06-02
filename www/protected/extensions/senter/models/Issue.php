@@ -2,6 +2,7 @@
 class Issue extends CActiveRecord
 {
     const STATUS_NEW = 10;
+    const STATUS_HOLD = 15;
     const STATUS_PROCESS = 20;
     const STATUS_REVIEW = 30;
     const STATUS_SOLVED = 40;
@@ -15,6 +16,7 @@ class Issue extends CActiveRecord
     const ACTION_REOPEN = 60;
 
     public $labels = null;
+    public $_collaborators = null;
 
     private $_devIssue = null;
     private $_clientIssue = null;
@@ -33,6 +35,7 @@ class Issue extends CActiveRecord
     {
         return array (
             self::STATUS_NEW => 'New',
+            self::STATUS_HOLD => 'Hold',
             self::STATUS_PROCESS => 'Process',
             self::STATUS_REVIEW => 'Review',
             self::STATUS_SOLVED => 'Solved',
@@ -57,7 +60,7 @@ class Issue extends CActiveRecord
     {
         return array(
             array('title', 'required'),
-            array('title, body, status, clientSource, clientSourceId, devSource, devSourceId, requesterId, assigneeId, deadlineDate, typeId, priority, priorityId', 'safe')
+            array('title, body, status, clientSource, clientSourceId, devSource, devSourceId, requesterId, assigneeId, deadlineDate, typeId, priority, priorityId, createDate, closedDate', 'safe')
         );
     }
 
@@ -68,6 +71,7 @@ class Issue extends CActiveRecord
             'priorityObj' => array(self::BELONGS_TO, 'Priority', 'priorityId'),
             'org' => array(self::BELONGS_TO, 'RequesterOrg', 'orgId'),
             'developer' => array(self::BELONGS_TO, 'Developer', 'assigneeId'),
+            'collaborators' => array(self::HAS_MANY, 'IssueCollaborator', 'issueId'),
         );
     }
 
@@ -104,13 +108,13 @@ class Issue extends CActiveRecord
                 'condition' => $alias.'.status IN ('. self::STATUS_PROCESS .', '. self::STATUS_NEW .')',
             ),
             'notClosed' => array(
-                'condition' => $alias.'.status IN ('. self::STATUS_PROCESS .', '. self::STATUS_NEW .', '. self::STATUS_REVIEW .', '. self::STATUS_SOLVED .')',
+                'condition' => $alias.'.status IN ('. self::STATUS_PROCESS .', '. self::STATUS_NEW .', '. self::STATUS_REVIEW .')',
             ),
             'inDevelopment' => array(
                 'condition' => $alias.'.devSourceId > 0',
             ),
             'orderPriority' => array(
-                'order' => $alias.'.priority DESC, ' . $alias .'.id ASC',
+                'order' => $alias.'.priority DESC, ' . $alias .'.deadlineDate DESC, ' . $alias .'.id ASC',
             ),
         );
     }
@@ -189,9 +193,11 @@ class Issue extends CActiveRecord
     {
         if (!$this->status)
             $this->status = self::STATUS_NEW;
+        if (!$this->createDate)
+            $this->createDate = date('Y-m-d G:i:s', time());
 
         if ($this->priorityId) {
-            $priority = Priority::model()->findAllByPk($this->priorityId);
+            $priority = Priority::model()->findByPk($this->priorityId);
             if ($priority) {
                 $this->priority = $priority->number;
             }
@@ -214,6 +220,23 @@ class Issue extends CActiveRecord
         }
 
         return parent::afterDelete();
+    }
+
+    protected function afterSave()
+    {
+        if ($this->_collaborators !== null) {
+            foreach ($this->collaborators as $collaborator) {
+                $collaborator->delete();
+            }
+            foreach ($this->_collaborators as $collaborator) {
+                $c = new IssueCollaborator();
+                $c->setAttributes($collaborator);
+                $c->issueId = $this->id;
+                $c->save();
+            }
+        }
+
+        return parent::afterSave();
     }
 
 }

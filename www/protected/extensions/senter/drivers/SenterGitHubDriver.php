@@ -81,6 +81,11 @@ class SenterGithubDriver extends CComponent {
         return $this->repos;
     }
 
+    public function getRepOwner ()
+    {
+        return $this->githubUser;
+    }
+
     public function test () {
         //$this->_client->api('issue')->labels()->replace($this->githubUser, 'gpor', 1980, array('bug') );
         //$repo   = $this->_client->getHttpClient()->put('repos/mediasite/gpor/issues/1980/labels', array(1=>'bug'));
@@ -119,8 +124,7 @@ class SenterGithubDriver extends CComponent {
 
     public function synchronizeIssues ()
     {
-        $this->createNwIssues();
-        die();
+        $this->createNewIssues();
 
         $lastCommits = array();
         foreach ($this->repos as $repo) {
@@ -148,26 +152,17 @@ class SenterGithubDriver extends CComponent {
             if (!$githubTask)
                 continue;
 
-            if (!$issue->assigneeId) {
-                if ($githubTask['assignee'] && $githubTask['assignee']['id']) {
-                    $issue->assigneeId = $githubTask['assignee']['id'];
-                    $developer = Developer::model()->byExternalId($githubTask['assignee']['id'])->find();
-                    if (!$developer) {
-                        $developer = new Developer();
-                        $developer->externalId = $githubTask['assignee']['id'];
-                        $developer->username = $githubTask['assignee']['login'];
-                        $developer->avatarUrl = $githubTask['assignee']['avatar_url'];
-                        $developer->url = $githubTask['assignee']['url'];
-                        $developer->save();
-                    }
-                    if ($issue->status < GitHubIssue::STATUS_OPEN)
-                        $issue->status = GitHubIssue::STATUS_OPEN;
-                }
+            if ($githubTask['assignee'] && $githubTask['assignee']['id'] && $githubTask['assignee']['id'] != $issue->assigneeId) {
+                $issue->assigneeId = $githubTask['assignee']['id'];
+                $developer = $this->getDeveloper($githubTask['assignee']);
+                if ($issue->status < GitHubIssue::STATUS_OPEN)
+                    $issue->status = GitHubIssue::STATUS_OPEN;
             }
 
             if ($githubTask['state'] == 'closed') {
                 // проверяем на ревью или уже сделано
                 $res = $this->_client->getHttpClient()->get('repos/'.$this->githubUser.'/'.$issue->rep.'/issues/'.$githubTask['number'].'/events');
+                $issueEvents = array();
                 if ($res)
                     $issueEvents = $res->getContent();
                 foreach ($issueEvents as $issueEvent) {
@@ -192,6 +187,7 @@ class SenterGithubDriver extends CComponent {
                     $issue->status = GitHubIssue::STATUS_CLOSED;
                     $issue->mergedAt = date('Y-m-d G:i:s', time());
                 }
+
             }
             $issue->save();
 
@@ -199,18 +195,27 @@ class SenterGithubDriver extends CComponent {
 
     }
 
-    public function createNwIssues ()
+    public function createNewIssues ()
     {
         foreach ($this->repos as $repo) {
-            $res = $this->_client->getHttpClient()->get('repos/'.$this->githubUser.'/'.$repo.'/issues', array('sort' => 'created', 'direction' => 'desc' ));
+            $issues = array();
+            $openedIssues = array();
+            $res = $this->_client->getHttpClient()->get('repos/'.$this->githubUser.'/'.$repo.'/issues', array('sort' => 'created', 'direction' => 'desc', 'state' => 'open' ));
             if ($res) {
                 $openedIssues = $res->getContent();
             }
-            print_r($openedIssues);
-            continue;
-            foreach ($openedIssues as $githubIssue) {
+
+            $closedIssues = array();
+            $res = $this->_client->getHttpClient()->get('repos/'.$this->githubUser.'/'.$repo.'/issues', array('sort' => 'created', 'direction' => 'desc', 'state' => 'closed' ));
+            if ($res) {
+                $closedIssues = $res->getContent();
+            }
+
+            $issues = array_merge($openedIssues, $closedIssues);
+
+            foreach ($issues as $githubIssue) {
                 // пропускаем пулл-реквесты
-                if ($githubIssue['pull_request'] && !empty($githubIssue['html_url'])) {
+                if ($githubIssue['pull_request'] && !empty($githubIssue['pull_request']['html_url'])) {
                     continue;
                 }
                 // пропускаем milestones
@@ -237,6 +242,7 @@ class SenterGithubDriver extends CComponent {
                             'labels' => $labels,
                             'devSource' => $this->getDriverName(),
                             'devSourceId' => $issue->id,
+                            'rep' => $repo,
                         );
                         $this->getComponent()->addIssueFromDev($attrs);
                     }
@@ -292,7 +298,7 @@ class SenterGithubDriver extends CComponent {
                 foreach ($attrs['labels'] as $label) {
                     $labels[] = array('name' => $label);
                 }
-                $this->_client->api('issue')->labels()->replace($this->githubUser, $attrs['rep'], $res['number'], $labels);
+                //$this->_client->api('issue')->labels()->replace($this->githubUser, $attrs['rep'], $res['number'], $labels);
             }
 
             $task = new GitHubIssue();
@@ -329,6 +335,78 @@ class SenterGithubDriver extends CComponent {
         if ($model) {
             return $model->delete();
         }
+    }
+
+    public function getCollaborators ($issue) {
+        $res = $this->_client->getHttpClient()->get('repos/'.$this->githubUser.'/'.$issue->rep.'/issues/'.$issue->repNum.'/events');
+        $issueEvents = array();
+        if ($res)
+            $issueEvents = $res->getContent();
+
+        $executorId = false;
+        $reviewerId = false;
+        $collaborators = array();
+        foreach ($issueEvents as $issueEvent) {
+            switch ($issueEvent['event']) {
+                case 'referenced':
+                    if ($issueEvent['commit_id'] && !$executorId) {
+                        $executorId = $issueEvent['actor']['id'];
+                    }
+                break;
+
+                case 'closed':
+                    if (!$executorId) {
+                        $executorId = $issueEvent['actor']['id'];
+                    }
+                break;
+
+                case 'merged':
+                    $reviewerId = $issueEvent['actor']['id'];
+                break;
+
+            }
+            if (!isset($collaborators[$issueEvent['actor']['id']])) {
+                $collaborators[$issueEvent['actor']['id']] = $issueEvent['actor'];
+                $collaborators[$issueEvent['actor']['id']]['type'] = IssueCollaborator::TYPE_OTHER;
+            }
+        }
+
+        if ($executorId) {
+            $collaborators[$executorId]['type'] = IssueCollaborator::TYPE_EXECUTOR;
+        }
+        if ($reviewerId) {
+            $collaborators[$reviewerId]['type'] = IssueCollaborator::TYPE_REVIEWER;
+        }
+
+        $res = array();
+        foreach ($collaborators as $collaborator) {
+            $developer = $this->getDeveloper($collaborator);
+
+            if (!$developer)
+                continue;
+
+            $res[] = array(
+                'developerId' => $developer->id,
+                'collaborationType' => $collaborator['type'],
+            );
+        }
+        return $res;
+
+    }
+
+    public function getDeveloper ($attrs)
+    {
+        $developer = Developer::model()->byExternalId($attrs['id'])->bySource($this->getDriverName())->find();
+        if (!$developer) {
+            $developer = new Developer();
+            $developer->externalId = $attrs['id'];
+            $developer->username = $attrs['login'];
+            $developer->avatarUrl = $attrs['avatar_url'];
+            $developer->url = $attrs['url'];
+            $developer->source = $this->getDriverName();
+            $developer->save();
+        }
+        return $developer;
     }
 
 
