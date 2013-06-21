@@ -1,3 +1,5 @@
+<?php if (!$isAjax) {
+    ?>
 <style type="text/css">
     .issues {
         __height: 700px;
@@ -8,7 +10,11 @@
         color: rgb(90, 90, 90);
     }
 </style>
-<div class="row-fluid issues">
+<div class="row-fluid issues" id="issuesList">
+    <?php
+}
+?>
+
     <div class="span6">
         <h3>Open <span class="label"><?php echo count($newIssues); ?></span></h3>
         <table class="table">
@@ -41,4 +47,27 @@
         </table>
 
     </div>
+
+<?php if (!$isAjax) {
+    ?>
 </div>
+
+<script type="text/javascript">
+    $(document).ready(function(){
+
+        function reloadPageContent() {
+            var sendObj = {
+                url : "<?php echo CHtml::normalizeUrl(array('/site/index')); ?>",
+                "dataType" : "json",
+                "data" : {},
+                "success" : function (data) { if(data["issuesList"]) {$("#issuesList").html(data["issuesList"])}  }
+            };
+
+            $.ajax(sendObj);
+        }
+        setInterval(reloadPageContent, 60000);
+    });
+</script>
+    <?php
+}
+?>

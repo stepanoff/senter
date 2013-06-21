@@ -13,9 +13,13 @@ class SenterGithubDriver extends CComponent {
     protected $login;
     protected $password;
     protected $githubUser; // todo: добавить поддержку работы с репозиториями нескольких пользователей
-    protected $repos = array('gpor', 'old');
+    protected $repos = array('gpor', 'old', 'auth-backend', 'chef');
 
     private $_client = null;
+
+    public function getModelName () {
+        return $this->issueModel;
+    }
 
     public function init($component, $options = array()) {
         if (isset($component))
@@ -32,16 +36,29 @@ class SenterGithubDriver extends CComponent {
     }
 
 
-    public function statusTypes ()
+    public function statusTypes ($source = false)
     {
-       return array (
-           Issue::STATUS_NEW => 'open',
-           Issue::STATUS_OPEN => 'open',
-           Issue::STATUS_PENDING => 'open',
-           Issue::STATUS_HOLD => 'open',
-           Issue::STATUS_SOLVED => 'closed',
-           Issue::STATUS_CLOSED => 'closed',
-       );
+        switch ($source) {
+            case 'Issue':
+                return array (
+                    GitHubIssue::STATUS_NEW => Issue::STATUS_NEW,
+                    GitHubIssue::STATUS_OPEN => Issue::STATUS_PROCESS,
+                    GitHubIssue::STATUS_REVIEW => Issue::STATUS_REVIEW,
+                    GitHubIssue::STATUS_CLOSED => Issue::STATUS_SOLVED,
+                    GitHubIssue::STATUS_PRODUCTION => Issue::STATUS_PRODUCTION,
+                );
+                break;
+
+            default:
+                return array (
+                    GitHubIssue::STATUS_NEW => 'open',
+                    GitHubIssue::STATUS_OPEN => 'open',
+                    GitHubIssue::STATUS_REVIEW => 'open',
+                    GitHubIssue::STATUS_CLOSED => 'closed',
+                    GitHubIssue::STATUS_PRODUCTION => 'closed',
+                );
+                break;
+        }
     }
 
     /**
@@ -117,14 +134,20 @@ class SenterGithubDriver extends CComponent {
     public function getProcessIssues ()
     {
         $res = GitHubIssue::model()->inProcess()->findAll();
-
         return $res;
-
     }
+
+    public function getNotClosedIssues ()
+    {
+        $res = GitHubIssue::model()->notClosed()->findAll();
+        return $res;
+    }
+
 
     public function synchronizeIssues ()
     {
         $this->createNewIssues();
+        $this->createNewMilestones();
 
         $lastCommits = array();
         foreach ($this->repos as $repo) {
@@ -152,15 +175,46 @@ class SenterGithubDriver extends CComponent {
             if (!$githubTask)
                 continue;
 
-            if ($githubTask['assignee'] && $githubTask['assignee']['id'] && $githubTask['assignee']['id'] != $issue->assigneeId) {
-                $issue->assigneeId = $githubTask['assignee']['id'];
-                $developer = $this->getDeveloper($githubTask['assignee']);
-                if ($issue->status < GitHubIssue::STATUS_OPEN)
-                    $issue->status = GitHubIssue::STATUS_OPEN;
+            $issue->status = GitHubIssue::STATUS_NEW;
+
+            $issue->milestoneId = 0;
+            // записываем milestone
+            if ($githubTask['milestone']) {
+                $mAttrs = $githubTask['milestone'];
+                $mAttrs['rep'] = $issue->rep;
+                $milestone = $this->getMilestone($mAttrs);
+                $issue->milestoneId = $milestone->id;
             }
 
-            if ($githubTask['state'] == 'closed') {
-                // проверяем на ревью или уже сделано
+            // ставим assignee
+            if ($githubTask['assignee'] && $githubTask['assignee']['id']) {
+                $issue->assigneeId = $githubTask['assignee']['id'];
+                $issue->status = GitHubIssue::STATUS_OPEN;
+                $developer = $this->getDeveloper($githubTask['assignee']); // добавляем нового разработчика при необходимости
+            }
+            else {
+                $issue->assigneeId = '';
+            }
+
+            // ставим статус тикету по тегу
+            $statusFound = false;
+            $labels = array();
+            if ($githubTask['labels']) {
+                foreach ($githubTask['labels'] as $l) {
+                    $labels[] = $l['name'];
+                }
+                foreach ($labels as $label) {
+                    $issueLabel = IssueStatusDevLabel::model()->bySource($this->getDriverName())->byLabel($label)->byRep($issue->rep)->find();
+                    if ($issueLabel) {
+                        $issue->status = $issueLabel->issueStatusId;
+                        $statusFound = true;
+                    }
+                }
+            }
+
+
+            // если не получилось, пытаемся определять статус автоматически
+            if (!$statusFound) {
                 $res = $this->_client->getHttpClient()->get('repos/'.$this->githubUser.'/'.$issue->rep.'/issues/'.$githubTask['number'].'/events');
                 $issueEvents = array();
                 if ($res)
@@ -170,25 +224,51 @@ class SenterGithubDriver extends CComponent {
                         $pullRequest = self::findPullRequestByCommitSha($issueEvent['commit_id'], $pullRequests[$issue->rep]);
                         if ($pullRequest) {
                             $issue->addPullRequest($pullRequest);
+                            $issue->addLastEvent('pullRequest', $issueEvent);
                         }
                     }
-                }
-                $pull = $issue->getPullRequest();
-                if ($pull && $pull['base']['ref'] == 'master') {
-                    $issue->masterCommitSha = $pull['base']['sha'];
-                    $issue->status = GitHubIssue::STATUS_REVIEW;
-                }
-                if ($pull && $pull['merged_at']) {
-                    $issue->status = GitHubIssue::STATUS_CLOSED;
-                    $issue->mergedAt = date('Y-m-d G:i:s', strtotime($pull['merged_at']));
+                    if ($issueEvent['event'] == 'closed') {
+                        $issue->addLastEvent('closed', $issueEvent);
+                    }
+                    if ($issueEvent['event'] == 'reopened') {
+                        $issue->addLastEvent('reopened', $issueEvent);
+                    }
                 }
 
-                if (!$pull) {
-                    $issue->status = GitHubIssue::STATUS_CLOSED;
-                    $issue->mergedAt = date('Y-m-d G:i:s', time());
-                }
+                $lastPullRequestEvent = $issue->getLastEvent('pullRequest');
+                $lastPullRequest =  $issue->getPullRequest();
+                $pullRequestDate = $lastPullRequestEvent ? strtotime($lastPullRequestEvent['created_at']) : 0;
 
+                $lastClosed = $issue->getLastEvent('closed');
+                $closedDate = $lastClosed ? strtotime($lastClosed['created_at']) : 0;
+
+                $lastReopened = $issue->getLastEvent('reopened');
+                $reopenedDate = $lastReopened ? strtotime($lastReopened['created_at']) : 0;
+
+                if ($pullRequestDate && $pullRequestDate >= $reopenedDate && !$lastPullRequest['merged_at']) {
+                    if ($lastPullRequest && $lastPullRequest['base']['ref'] == 'master') {
+                        $issue->masterCommitSha = $lastPullRequest['base']['sha'];
+                        $issue->status = GitHubIssue::STATUS_REVIEW;
+                    }
+                }
+                if ($githubTask['state'] == 'closed' && $closedDate && $closedDate > $reopenedDate && $closedDate >= $pullRequestDate) {
+                    if ($lastPullRequest && $lastPullRequest['merged_at']) {
+                        $issue->status = GitHubIssue::STATUS_CLOSED;
+                        if ($lastPullRequest['base']['ref'] == 'master') {
+                            $issue->masterCommitSha = $lastPullRequest['base']['sha'];
+                        }
+                    }
+                    if (!$lastPullRequest) {
+                        $issue->status = GitHubIssue::STATUS_CLOSED;
+                    }
+                }
             }
+
+            // ставим дату закрытия
+            if ($issue->status == GitHubIssue::STATUS_CLOSED) {
+                $issue->mergedAt = date('Y-m-d G:i:s', strtotime($lastPullRequest['merged_at']));
+            }
+
             $issue->save();
 
         }
@@ -218,10 +298,6 @@ class SenterGithubDriver extends CComponent {
                 if ($githubIssue['pull_request'] && !empty($githubIssue['pull_request']['html_url'])) {
                     continue;
                 }
-                // пропускаем milestones
-                if ($githubIssue['milestone']) {
-                    continue;
-                }
 
                 $issue = GitHubIssue::model()->byRep($repo)->byRepNum($githubIssue['number'])->find();
                 if (!$issue) {
@@ -247,6 +323,29 @@ class SenterGithubDriver extends CComponent {
                         $this->getComponent()->addIssueFromDev($attrs);
                     }
 
+                }
+                else {
+                    // переоткрытые тикеты
+                    $currentStatus = $githubIssue['state'];
+                    if ($issue->status >= GitHubIssue::STATUS_OPEN && $currentStatus == 'open') {
+                        $issue->status = GitHubIssue::STATUS_NEW;
+                        $issue->save();
+                    }
+                }
+            }
+        }
+    }
+
+    public function createNewMilestones ()
+    {
+        foreach ($this->repos as $repo) {
+            $milestones = array();
+            $res = $this->_client->getHttpClient()->get('repos/'.$this->githubUser.'/'.$repo.'/milestones', array('state' => 'open' ));
+            if ($res) {
+                $milestones = $res->getContent();
+                foreach ($milestones as $attrs) {
+                    $attrs['rep'] = $repo;
+                    $milestone = $this->getMilestone($attrs);
                 }
             }
         }
@@ -315,6 +414,11 @@ class SenterGithubDriver extends CComponent {
     {
         $modelName = $this->issueModel;
         return $modelName::model()->findByPk($id);
+    }
+
+    public function getMilestoneById ($id)
+    {
+        return GitHubMilestone::model()->findByPk($id);
     }
 
     public static function findPullRequestByCommitSha ($sha, $pulls)
@@ -409,5 +513,40 @@ class SenterGithubDriver extends CComponent {
         return $developer;
     }
 
+    public function getMilestone ($attrs)
+    {
+        $githubMilestone = GitHubMilestone::model()->byRep($attrs['rep'])->byRepNum($attrs['number'])->find();
+        $milestone = false;
+        if (!$githubMilestone) {
+            $githubMilestone = new GitHubMilestone();
+            $githubMilestone->rep = $attrs['rep'];
+            $githubMilestone->repNum = $attrs['number'];
+            $githubMilestone->save();
+        }
+        else {
+            $milestone = Milestone::model()->byDevSource($this->getDriverName())->byDevId($githubMilestone->id)->find();
+        }
+
+        if ($githubMilestone && !$milestone) {
+            $milestone = new Milestone();
+            $milestone->devSource = $this->getDriverName();
+            $milestone->devSourceId = $githubMilestone->id;
+            $milestone->title = $attrs['title'];
+            $milestone->body = $attrs['description'];
+            $milestone->status = Milestone::STATUS_NEW;
+            $milestone->save();
+        }
+
+        return $githubMilestone;
+    }
+
+    public function convertStatus ($status, $source = false) {
+        $statuses = $this->statusTypes($source);
+        foreach ($statuses as $k=>$v) {
+            if ($v == $status)
+                return $k;
+        }
+        return false;
+    }
 
 }

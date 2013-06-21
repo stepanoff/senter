@@ -1,5 +1,5 @@
 <?php
-class GitHubIssue extends CActiveRecord
+class GitHubMilestone extends CActiveRecord
 {
     const STATUS_NEW = 10;
     const STATUS_OPEN = 20;
@@ -17,7 +17,7 @@ class GitHubIssue extends CActiveRecord
 
     public function tableName()
     {
-        return 'githubissues';
+        return 'githubmilestones';
     }
 
     public function relations()
@@ -42,8 +42,7 @@ class GitHubIssue extends CActiveRecord
         return array(
             'status' => 'Статус',
             'rep' => 'Репозиторий',
-            'repNum' => 'номер тикета в репозитории',
-            'asigneeId' => 'Ответственный',
+            'repNum' => 'номер в репозитории',
             'pullRequestNum' => 'номер пулл-реквеста',
             'masterCommitSha' => 'sha коммита в мастер',
         );
@@ -52,7 +51,7 @@ class GitHubIssue extends CActiveRecord
     public function rules()
     {
         return array(
-            array('status, rep, repNum, assigneeId, pullRequestNum, masterCommitSha, createdAt, mergedAt, closedAt, milestoneId', 'safe')
+            array('status, rep, repNum, pullRequestNum, masterCommitSha', 'safe')
         );
     }
 
@@ -145,7 +144,7 @@ class GitHubIssue extends CActiveRecord
     public function getUrl()
     {
         $user = Yii::app()->getComponent('senter')->getDevDriver()->getRepOwner();
-        return 'https://github.com/'.$user.'/'.$this->rep.'/issues/'.$this->repNum;
+        return 'https://github.com/'.$user.'/'.$this->rep.'/issues?milestone='.$this->repNum.'&state=open';
     }
 
 }

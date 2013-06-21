@@ -1,22 +1,16 @@
 <?php
-class AdminIssueController extends VAdminController
+class AdminMilestoneController extends VAdminController
 {
-	public $model = 'Issue';
+	public $model = 'Milestone';
 
-    public $route = '/admin/adminIssue';
+    public $route = '/admin/adminMilestone';
 
     public function layoutsFilters() {
         return array(
             'status' => array(
                 'type' => 'dropdownlist',
                 'label' => 'Статус',
-                'items' => Issue::statusTypes(),
-                'empty' => 'Выбрать',
-            ),
-            'type' => array(
-                'type' => 'dropdownlist',
-                'label' => 'Тип',
-                'items' => self::typesList (),
+                'items' => Milestone::statusTypes(),
                 'empty' => 'Выбрать',
             ),
             'id' => array(
@@ -30,14 +24,6 @@ class AdminIssueController extends VAdminController
         );
     }
 
-    public static function typesList ()
-    {
-        return array(
-            '1' => 'Переданные в разработку',
-            '2' => 'Не переданные в разработку',
-        );
-    }
-
     public function appendLayoutFilters($model, $cFilterForm) {
         if ($cFilterForm->model->status != "") {
             $model->byStatus($cFilterForm->model->status);
@@ -47,20 +33,6 @@ class AdminIssueController extends VAdminController
         }
         if ($cFilterForm->model->id != "") {
             $model->getDbCriteria()->mergeWith(array('condition' => $model->getTableAlias().'.id = '.$cFilterForm->model->id));
-        }
-        if ($cFilterForm->model->type != "") {
-            $type = $cFilterForm->model->type;
-            switch ($type) {
-                case '1':
-                    $model->getDbCriteria()->mergeWith(array('condition' => $model->getTableAlias().'.devSourceId > 0'));
-                    break;
-
-                case '2':
-                    $model->getDbCriteria()->mergeWith(array('condition' => $model->getTableAlias().'.devSourceId = 0'));
-                    break;
-
-            }
-            $model->getDbCriteria()->addSearchCondition('title', $cFilterForm->model->title);
         }
         $model->orderPriority();
         return $model;
@@ -72,12 +44,12 @@ class AdminIssueController extends VAdminController
             array(
                 'name'=>'devLink',
                 'type' => 'raw',
-                'value'=>'$data->getDevIssue() ? CHtml::link($data->getDevIssue()->getNumber(), $data->getDevIssue()->getUrl()) : \'\'',
+                'value'=>'$data->getDevMilestone() ? CHtml::link($data->getDevMilestone()->getNumber(), $data->getDevMilestone()->getUrl()) : \'\'',
             ),
             array(
                 'name'=>'repo',
                 'type' => 'raw',
-                'value'=>'$data->getDevIssue() ? $data->getDevIssue()->rep : \'\'',
+                'value'=>'$data->getDevMilestone() ? $data->getDevMilestone()->rep : \'\'',
             ),
             array(
                 'class'=>'VAdminButtonWidget',
@@ -87,12 +59,6 @@ class AdminIssueController extends VAdminController
 
     public function getFormElements ($model)
     {
-        $types = array();
-        $tmp = IssueType::model()->findAll();
-        foreach ($tmp as $r) {
-            $types[$r->id] = $r->name;
-        }
-
         $priorities = array();
         $tmp = Priority::model()->findAll();
         foreach ($tmp as $r) {
@@ -114,11 +80,6 @@ class AdminIssueController extends VAdminController
             'priorityId'=>array(
                 'type'=>'dropdownlist',
                 'items'=>$priorities,
-                'empty'=>'Выбрать',
-            ),
-            'typeId'=>array(
-                'type'=>'dropdownlist',
-                'items'=>$types,
                 'empty'=>'Выбрать',
             ),
             'deadlineDate'=>array(

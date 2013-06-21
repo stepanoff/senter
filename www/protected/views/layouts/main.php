@@ -25,6 +25,15 @@
         </button>
         <a class="brand" href="/"><?php echo Yii::app()->params['siteName']; ?></a>
         <div class="nav-collapse collapse" style="height: 0px; ">
+            <?php
+                $this->widget('VMenuWidget', array('items' => array(
+                    array ('title' => 'Главная', 'link' => CHtml::normalizeUrl(array('/site/index/')) ),
+                    array ('title' => 'Backlog', 'link' => CHtml::normalizeUrl(array('/site/backLog/')) ),
+                    array ('title' => 'Статистика', 'link' => CHtml::normalizeUrl(array('/site/statistic/')) ),
+                )));
+            ?>
+
+
           <ul class="nav">
               <li class="active">
                 <a href="/">Главная</a>
@@ -37,7 +46,9 @@
 
     <div class="container">
 
-      <?php echo $content; ?>
+      <div id="pageContent">
+          <?php echo $content; ?>
+      </div>
 
       <div class="footer">
         <p>&copy; Company 2013</p>

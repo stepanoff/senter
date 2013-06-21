@@ -60,8 +60,7 @@ class SenterZendeskDriver extends SenterDriverBase {
      */
     public function createIssues ()
     {
-        return true;
-        $page = 14;
+        $page = 1;
         $data = $this->curlWrap("/tickets.json?page=".$page, null, "GET");
 
         if ($data && is_object($data)) {
@@ -92,9 +91,12 @@ class SenterZendeskDriver extends SenterDriverBase {
                     $attrs = array(
                         'clientSourceId' => $zendeskIssue->id,
                         'clientSource' => $this->getDriverName(),
-                        'status' => self::getIssueStatus($zendeskIssue->status),
+                        //'status' => self::getIssueStatus($zendeskIssue->status),
                         'title' => $ticket->subject,
                         'body' => $ticket->description,
+                        'labels' => $ticket->tags,
+                        'organization' => $ticket->organization_id,
+                        'requester' => $ticket->requester_id,
                     );
                     $this->getComponent()->addIssueFromClient($attrs);
                 }

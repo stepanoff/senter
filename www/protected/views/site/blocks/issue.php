@@ -2,9 +2,9 @@
     <td width="20%" style="<?php echo SenterHtmlHelper::getIssueTypeStyle($issue); ?>"><h1><?php echo $issue->devIssue->number; ?></h1></td>
     <td width="60%" style="<?php echo SenterHtmlHelper::getIssuePriorityStyle($issue); ?>">
         <h4><?php echo $issue->title; ?></h4>
-        <div class="btn-group">
+        <!--div class="btn-group">
             <a target="_blank" class="btn" action="" title="Редактировать" href="<?php echo CHtml::normalizeUrl(array('/admin/adminIssue/edit', 'id' => $issue->id)); ?>"><i class="icon-pencil"></i></a>
-        </div>
+        </div-->
         <p>
             <?php
             $devIssue = $issue->devIssue;
@@ -17,7 +17,7 @@
                 echo '<span>'.CHtml::link('zendesk', $clientIssue->getUrl()).'</span> ';
             }
 
-            echo SenterHtmlHelper::issueDeadline($issue);
+            echo SenterHtmlHelper::deadline($issue->deadlineDate);
             ?>
         </p>
     </td>

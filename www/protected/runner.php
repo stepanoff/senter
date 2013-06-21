@@ -24,6 +24,10 @@ if ( $noinit && $name == 'senter' /* || Yii::app()->senter->initService($name)*/
 {
 	Yii::app()->senter->processIssues();
 }
+else if ( $noinit && $name == 'createIssues' /* || Yii::app()->senter->initService($name)*/ )
+{
+	Yii::app()->senter->createIssues();
+}
 else {
     echo date('Y-m-d H:i:s'), " - $name. Not initalized.\n";
 }

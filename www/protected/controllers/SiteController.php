@@ -13,7 +13,7 @@ class SiteController extends VController
         $onReviewIssues = array();
         $solvedIssues = array();
 
-        $allIssues = Issue::model()->notClosed()->inDevelopment()->orderPriority()->findAll();
+        $allIssues = Issue::model()->notClosed()->inDevelopment()->inSupport()->orderPriority()->findAll();
         foreach ($allIssues as $issue) {
             if ($issue->isNew()) {
                 $newIssues[] = $issue;
@@ -30,15 +30,46 @@ class SiteController extends VController
 
         }
 
+        if (Yii::app()->request->isAjaxRequest) {
+            $res = $this->renderPartial('main', array(
+                'newIssues' => $newIssues,
+                'inProcessIssues' => $inProcessIssues,
+                'onReviewIssues' => $onReviewIssues,
+                'solvedIssues' => $solvedIssues,
+                'isAjax' => true,
+            ), true);
+            echo CJSON::encode(array('issuesList' => $res));
+            die();
+        }
+
         $this->render('main', array(
             'newIssues' => $newIssues,
             'inProcessIssues' => $inProcessIssues,
             'onReviewIssues' => $onReviewIssues,
             'solvedIssues' => $solvedIssues,
+            'isAjax' => false,
         ));
-
-        die();
 	}
+
+    public function actionMilestones ()
+    {
+        $milestones = Milestone::model()->notClosed()->orderPriority()->findAll();
+        $this->render ('milestones', array('milestones' => $milestones));
+    }
+
+    public function actionBacklog ()
+    {
+        $allIssues = Issue::model()->byStatus(Issue::STATUS_HOLD)->inDevelopment()->orderPriority()->findAll();
+        $this->render ('backlog', array('issues' => $allIssues));
+    }
+
+    public function actionClosedIssues ()
+    {
+        $month = date('m');
+        $year = date('Y');
+        $allIssues = Issue::model()->solved()->inDevelopment()->orderSolvedDate()->bySolvedMonth($month, $year)->findAll();
+        $this->render ('closedStat', array('issues' => $allIssues));
+    }
 
     public function actionCommonStat ()
     {

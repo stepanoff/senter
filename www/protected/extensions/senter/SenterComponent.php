@@ -104,32 +104,73 @@ class SenterComponent extends CApplicationComponent {
 
     public function processIssues ()
     {
-        echo "syncronize\n";
+        //echo "syncronize\n";
         $this->synchronizeIssues ();
 
-        echo "mark closed issues\n";
+        //echo "mark closed issues\n";
         $this->markClosedIssues(); // закрываем тикеты, выкаченные на живой сайт
 
-        echo "mark solved issues\n";
+        //echo "mark solved issues\n";
         $this->markSolvedIssues();// комментируем тикеты, влитые в основную ветку
 
-        echo "mark review issues\n";
+        //echo "mark review issues\n";
         $this->markReviewIssues(); // комментируем тикеты, отданные на проверку
 
-        echo "mark process issues\n";
+        //echo "mark process issues\n";
         $this->markProcessIssues(); // комментируем тикеты, взятые в разработку
 
-//        $this->createNewIssues(); // выгружаем новые тикеты из сервисов техподдержек
+        //echo "mark reopened issues\n";
+        $this->markReopenedIssues();
 
-        echo "upload issues to dev\n";
+        $this->createNewIssues(); // выгружаем новые тикеты из сервисов техподдержек
+
+        //echo "upload issues to dev\n";
         $this->uploadOpenIssuesToDev (); // отправляем новые тикеты в систему тикетов разработки
 
     }
 
     public function synchronizeIssues ()
     {
-        $driver = $this->getDevDriver();
-        $driver->synchronizeIssues ();
+        $devDriver = $this->getDevDriver();
+        $devDriver->synchronizeIssues ();
+
+        $issues = $devDriver->getNotClosedIssues();
+        if ($issues) {
+            foreach ($issues as $issue) {
+                $sourceIssue = Issue::model()->byDevSource($devDriver->getDriverName())->byDevId($issue->id)->find();
+
+                if (!$sourceIssue) {
+                    echo $issue->id."!\n";
+                    continue;
+                }
+
+                if ($sourceIssue->status == Issue::STATUS_HOLD)
+                    continue;
+
+                if ($sourceIssue) {
+                    $sourceIssue->assigneeId = '';
+                    $newStatus = $devDriver->convertStatus ($issue->status, 'Issue');
+                    // reopened issues
+                    if ($newStatus < $sourceIssue->status) {
+                        $sourceIssue->status = $newStatus;
+                    }
+                    // syncronize assignments
+                    $developer = Developer::model()->byExternalId($issue->assigneeId)->bySource($devDriver->getDriverName())->find();
+                    if ($developer) {
+                        $sourceIssue->assigneeId = $developer->id;
+                    }
+                    // syncronize milestones
+                    $sourceIssue->milestoneId = 0;
+                    $milestone = false;
+                    if ($issue->milestoneId)
+                        $milestone = Milestone::model()->byDevId($issue->milestoneId)->byDevSource($devDriver->getDriverName())->find();
+                    if ($milestone) {
+                        $sourceIssue->milestoneId = $milestone->id;
+                    }
+                    $sourceIssue->save();
+                }
+            }
+        }
 
         foreach ($this->getClientDrivers() as $driver) {
             $driver->synchronizeIssues ();
@@ -216,10 +257,6 @@ class SenterComponent extends CApplicationComponent {
                     if (!$driver || $driver->markIssue($sourceIssue, Issue::ACTION_PROCESS)) {
                         $devDriver->markIssue($issue, Issue::ACTION_PROCESS);
 
-                        $developer = Developer::model()->byExternalId($issue->assigneeId)->bySource($devDriver->getDriverName())->find();
-                        if ($developer) {
-                            $sourceIssue->assigneeId = $developer->id;
-                        }
                         $sourceIssue->processDate = date('Y-m-d G:i:s', time());
                         $this->markIssue($sourceIssue, Issue::ACTION_PROCESS);
                     }
@@ -276,7 +313,8 @@ class SenterComponent extends CApplicationComponent {
 
     public function markReopenedIssues ()
     {
-        $devDriver = $this->getDevDriver();
+
+        /*
         foreach ($this->getClientDrivers() as $driver) {
             $issues = $driver->getProcessIssues();
             if ($issues) {
@@ -293,6 +331,7 @@ class SenterComponent extends CApplicationComponent {
                 }
             }
         }
+        */
     }
 
 
@@ -460,7 +499,7 @@ class SenterComponent extends CApplicationComponent {
                 break;
 
             case Issue::ACTION_REOPEN:
-                $issue->status = Issue::STATUS_PROCESS;
+                //$issue->status = Issue::STATUS_PROCESS;
                 break;
 
         }

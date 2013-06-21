@@ -18,11 +18,13 @@
     <?php
         $this->widget('VAdminMenuWidget', array('items' => array(
             array ('title' => 'Тикеты', 'link' => '/admin/adminIssue/'),
+            array ('title' => 'Проекты', 'link' => '/admin/adminMilestone/'),
             array ('title' => 'Разработчики', 'link' => '/admin/adminDeveloper/'),
             array ('title' => 'Организации', 'link' => '/admin/adminOrg/'),
             array ('title' => 'Постановщики задач', 'link' => '/admin/adminRequester/'),
             array ('title' => 'Приоритеты', 'link' => '/admin/adminPriority/'),
             array ('title' => 'Типы задач', 'link' => '/admin/adminIssueType/'),
+            array ('title' => 'Лейблы статусов', 'link' => '/admin/adminIssueStatusDevLabel/'),
         )));
     ?>
 

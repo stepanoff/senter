@@ -1,7 +1,8 @@
 <?php
-class Issue extends CActiveRecord
+class Milestone extends CActiveRecord
 {
     const STATUS_NEW = 10;
+    const STATUS_IGNORE = 12;
     const STATUS_HOLD = 15;
     const STATUS_PROCESS = 20;
     const STATUS_REVIEW = 30;
@@ -18,8 +19,8 @@ class Issue extends CActiveRecord
     public $labels = null;
     public $_collaborators = null;
 
-    private $_devIssue = null;
-    private $_clientIssue = null;
+    private $_issues = null;
+    private $_devMilestone = null;
 
     public static function model($className=__CLASS__)
     {
@@ -28,7 +29,7 @@ class Issue extends CActiveRecord
 
     public function tableName()
     {
-        return 'issues';
+        return 'milestones';
     }
 
     public static function statusTypes ($source = false)
@@ -49,8 +50,6 @@ class Issue extends CActiveRecord
             'title' => 'Заголовок',
             'body' => 'Описание',
             'status' => 'Статус',
-            'clientSource' => 'Источник постановщика задач',
-            'clientSourceId' => 'id в источнике постановщика задач',
             'devSource' => 'Источник в системе разработке',
             'devSourceId' => 'id в в системе разработки',
         );
@@ -60,44 +59,33 @@ class Issue extends CActiveRecord
     {
         return array(
             array('title', 'required'),
-            array('title, body, status, clientSource, clientSourceId, devSource, devSourceId, requesterId, assigneeId, deadlineDate, typeId, priority, priorityId, createDate, closedDate, milestoneId', 'safe')
+            array('title, body, status, devSource, devSourceId, deadlineDate, priority, priorityId, createDate, closedDate', 'safe')
         );
     }
 
     public function relations()
     {
         return array(
-            'type' => array(self::BELONGS_TO, 'IssueType', 'typeId'),
             'priorityObj' => array(self::BELONGS_TO, 'Priority', 'priorityId'),
-            'org' => array(self::BELONGS_TO, 'RequesterOrg', 'orgId'),
-            'developer' => array(self::BELONGS_TO, 'Developer', 'assigneeId'),
-            'collaborators' => array(self::HAS_MANY, 'IssueCollaborator', 'issueId'),
         );
     }
 
-    public function getDevIssue()
+    public function getIssues()
     {
-        if ($this->_devIssue === null) {
-            $this->_devIssue = false;
-            if ($this->devSourceId) {
-                // todo: при нескольких драйверов поменять
-                $driver = Yii::app()->senter->getDevDriver();
-                $this->_devIssue = $driver->getIssueById($this->devSourceId);
-            }
+        if ($this->_issues === null) {
+            $this->_issues = Issue::model()->byMilestoneId($this->id)->findAll();
         }
-        return $this->_devIssue;
+        return $this->_issues;
     }
 
-    public function getClientIssue()
+    public function getDevMilestone()
     {
-        if ($this->_clientIssue === null) {
-            $this->_clientIssue = false;
-            if ($this->clientSourceId) {
-                $driver = Yii::app()->senter->getClientDriver($this->clientSource);
-                $this->_clientIssue = $driver->getIssueById($this->clientSourceId);
-            }
+        if ($this->_devMilestone === null) {
+            // todo: настроить на раоту с несколькими драйверами
+            $driver = Yii::app()->senter->getDevDriver();
+            $this->_devMilestone = $driver->getMilestoneById($this->devSourceId);
         }
-        return $this->_clientIssue;
+        return $this->_devMilestone;
     }
 
     public function scopes()
@@ -112,12 +100,6 @@ class Issue extends CActiveRecord
             ),
             'solved' => array(
                 'condition' => $alias.'.status IN ('. self::STATUS_SOLVED .', '. self::STATUS_PRODUCTION .')',
-            ),
-            'inDevelopment' => array(
-                'condition' => $alias.'.devSourceId > 0',
-            ),
-            'inSupport' => array(
-                'condition' => $alias.'.milestoneId = 0',
             ),
             'orderSolvedDate' => array(
                 'order' => $alias.'.solvedDate DESC',
@@ -160,15 +142,6 @@ class Issue extends CActiveRecord
         return $this;
     }
 
-    public function byClientSource($source)
-    {
-        $alias = $this->getTableAlias();
-        $this->getDbCriteria()->mergeWith(array(
-            'condition' => $alias.'.clientSource = "'.$source.'"',
-        ));
-        return $this;
-    }
-
     public function byStatus($status)
     {
         $alias = $this->getTableAlias();
@@ -192,15 +165,6 @@ class Issue extends CActiveRecord
         $alias = $this->getTableAlias();
         $this->getDbCriteria()->mergeWith(array(
             'condition' => $alias.'.devSourceId = "'.$id.'"',
-        ));
-        return $this;
-    }
-
-    public function byMilestoneId($id)
-    {
-        $alias = $this->getTableAlias();
-        $this->getDbCriteria()->mergeWith(array(
-            'condition' => $alias.'.milestoneId = "'.$id.'"',
         ));
         return $this;
     }
@@ -249,10 +213,7 @@ class Issue extends CActiveRecord
     {
         $senter = Yii::app()->getComponent('senter');
         if ($this->devSourceId && $senter) {
-            $senter->removeDevIssueByIssue($this);
-        }
-        if ($this->clientSourceId && $senter) {
-            $senter->removeClientIssueByIssue($this);
+            // todo: удалить все тикеты
         }
 
         return parent::afterDelete();
@@ -260,18 +221,6 @@ class Issue extends CActiveRecord
 
     protected function afterSave()
     {
-        if ($this->_collaborators !== null) {
-            foreach ($this->collaborators as $collaborator) {
-                $collaborator->delete();
-            }
-            foreach ($this->_collaborators as $collaborator) {
-                $c = new IssueCollaborator();
-                $c->setAttributes($collaborator);
-                $c->issueId = $this->id;
-                $c->save();
-            }
-        }
-
         return parent::afterSave();
     }
 

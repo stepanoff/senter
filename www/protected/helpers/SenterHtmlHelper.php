@@ -21,12 +21,23 @@ class SenterHtmlHelper
         return $res;
     }
 
-    public static function issueDeadline ($issue)
+    public static function getMilestonePriorityStyle ($milestone)
     {
-        if (!$issue->deadlineDate || $issue->deadlineDate == '0000-00-00 00:00:00')
+        $res = '';
+        $priority = $milestone->priorityObj;
+        if ($priority->color) {
+            $res = 'background-color: #'.$priority->color.';';
+        }
+        return $res;
+    }
+
+    public static function deadline ($issue)
+    {
+        $time = strtotime($issue->deadlineDate);
+        if (!$time)
             return '';
 
-        $hoursLeft = ceil( (strtotime($issue->deadlineDate) - time())/(60*60) );
+        $hoursLeft = ceil( ($time - time())/(60*60) );
 
         $class = '';
         if ($hoursLeft < 0) {
