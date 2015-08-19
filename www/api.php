@@ -4,7 +4,7 @@
 require_once '../vendor/autoload.php';
 
 $client = new Github\Client();
-$client->authenticate('stepanoff', 'ghjntrn123', 'http_password');
+$client->authenticate('user', 'password', 'http_password');
 
 $commits = $client->api('repo')->commits()->all('mediasite', 'gpor', array('sha' => 'master'));
 var_dump($commits);
